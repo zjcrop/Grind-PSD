@@ -69,6 +69,16 @@ function init() {
   selectInitialRecord();
   renderAll();
   downloadCommunity({ silent: true });
+  registerServiceWorker();
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(() => {
+      // PWA registration failure should not block the measurement tool.
+    });
+  });
 }
 
 function cacheDom() {

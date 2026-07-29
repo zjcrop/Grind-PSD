@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Grind-PSD">
+  <rect width="512" height="512" rx="96" fill="#1f8a70"/>
+  <circle cx="168" cy="188" r="56" fill="#f7f8f6" opacity=".95"/>
+  <circle cx="308" cy="154" r="42" fill="#f7f8f6" opacity=".9"/>
+  <circle cx="352" cy="280" r="66" fill="#f7f8f6" opacity=".95"/>
+  <circle cx="206" cy="332" r="34" fill="#f7f8f6" opacity=".82"/>
+  <path d="M120 398h272" stroke="#f7f8f6" stroke-width="34" stroke-linecap="round"/>
+  <path d="M140 398c42-64 192-64 232 0" fill="none" stroke="#13624f" stroke-width="18" stroke-linecap="round"/>
+  <text x="256" y="452" fill="#f7f8f6" font-family="Arial, sans-serif" font-size="54" font-weight="700" text-anchor="middle">PSD</text>
+</svg>
