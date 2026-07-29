@@ -1,59 +1,136 @@
 {
+  "schemaVersion": "3.0.0",
   "standardId": "grind-psd-sieve-v1",
-  "schemaVersion": "2.0.0",
-  "title": "Grind-PSD 咖啡研磨粒径筛分标准 v1",
-  "measurementMethod": "manual_sieve_fraction",
-  "unit": "gram",
-  "principle": "同一记录必须按 18 / 24 / 35 / 60 目和 80 目底盘极细粉五段记录筛上重量。社区比较优先使用占比，减少投粉量差异。",
+  "standardVersion": "1.0.0",
+  "title": "Grind-PSD 咖啡研磨五段筛分标准 v1",
+  "measurementMethod": "manual_sieve_mass_fraction",
+  "measurementUnit": "gram",
+  "comparisonUnit": "mass_percent",
+  "principle": "逐层记录五个固定标称粒径区间的原始回收重量，并以五档回收总重为分母计算质量占比。公开比较必须保持筛具、筛分方法和时长可追溯。",
+  "labelPolicy": {
+    "statement": "18 / 24 / 35 / 60 / 80 目为项目原始工具沿用的档位标签；数据库的实际比较边界以 nominalRangeUm 为准。",
+    "warning": "不得把本项目的目数标签自动换算为 ASTM E11、ISO 3310 或其他国家标准筛孔径，也不得将不同区间体系混入同一 standardId。"
+  },
   "bins": [
     {
       "id": "mesh18_retained_g",
       "label": "18 目筛上",
       "nominalRangeUm": ">=1000",
-      "description": "粗粉段，记录留在 18 目筛上的重量。"
+      "lowerBoundUm": 1000,
+      "upperBoundUm": null,
+      "description": "极粗段；留在项目 18 目档上方的重量。"
     },
     {
       "id": "mesh24_retained_g",
       "label": "24 目筛上",
       "nominalRangeUm": "800-1000",
-      "description": "粗中段，记录通过 18 目但留在 24 目筛上的重量。"
+      "lowerBoundUm": 800,
+      "upperBoundUm": 1000,
+      "description": "通过 1000 μm 档、留在 800 μm 档的重量。"
     },
     {
       "id": "mesh35_retained_g",
       "label": "35 目筛上",
       "nominalRangeUm": "500-800",
-      "description": "主体中粉段，记录通过 24 目但留在 35 目筛上的重量。"
+      "lowerBoundUm": 500,
+      "upperBoundUm": 800,
+      "description": "通过 800 μm 档、留在 500 μm 档的重量。"
     },
     {
       "id": "mesh60_retained_g",
       "label": "60 目筛上",
       "nominalRangeUm": "300-500",
-      "description": "细粉段，记录通过 35 目但留在 60 目筛上的重量。"
+      "lowerBoundUm": 300,
+      "upperBoundUm": 500,
+      "description": "通过 500 μm 档、留在 300 μm 档的重量。"
     },
     {
       "id": "pan80_lt300_g",
-      "label": "80 目底盘极细粉",
+      "label": "80 目档底盘",
       "nominalRangeUm": "<300",
-      "description": "极细粉段，记录通过上方筛层并落入底盘的重量。"
+      "lowerBoundUm": null,
+      "upperBoundUm": 300,
+      "description": "通过 300 μm 档并落入底盘的极细粉重量。"
+    }
+  ],
+  "publicSubmissionRequirements": {
+    "doseG": {
+      "required": true,
+      "minimum": 1,
+      "maximum": 200
+    },
+    "scaleResolutionG": {
+      "recommendedMaximum": 0.01
+    },
+    "durationSec": {
+      "required": true,
+      "minimum": 1,
+      "maximum": 3600
+    },
+    "sieveDevice": {
+      "required": true
+    },
+    "massBalanceErrorPct": {
+      "maximum": 10
+    },
+    "independentReplicates": {
+      "recommendedMinimum": 3
+    }
+  },
+  "qualityGrades": [
+    {
+      "grade": "A",
+      "label": "高可比",
+      "massBalanceErrorPct": "<=2",
+      "additionalRequirement": "筛分时长和筛具记录完整"
+    },
+    {
+      "grade": "B",
+      "label": "可比",
+      "massBalanceErrorPct": "<=5"
+    },
+    {
+      "grade": "C",
+      "label": "谨慎比较",
+      "massBalanceErrorPct": ">5 and <=10"
+    },
+    {
+      "grade": "D",
+      "label": "不建议入库",
+      "massBalanceErrorPct": ">10"
     }
   ],
   "requiredRecordFields": [
+    "schemaVersion",
     "standardId",
+    "id",
     "user.id",
     "grinder.brand",
     "grinder.model",
     "grinder.setting",
+    "sample.doseG",
+    "sample.method",
+    "sample.durationSec",
+    "sample.sieveDevice",
     "weightsGrams.mesh18_retained_g",
     "weightsGrams.mesh24_retained_g",
     "weightsGrams.mesh35_retained_g",
     "weightsGrams.mesh60_retained_g",
     "weightsGrams.pan80_lt300_g",
     "totalG",
+    "license",
     "createdAt"
   ],
-  "qualityNotes": [
-    "筛分总重与投粉量偏差超过 8% 时，应复核称量、静电吸附和漏粉。",
-    "D10 / D50 / D90 为五段筛分近似插值，只用于同标准数据横向比较。",
-    "如筛具实际孔径与本标准标称孔径不同，应在 notes 或 sample.method 中注明。"
+  "references": [
+    {
+      "title": "ISO 3310-1:2016 — Test sieves of metal wire cloth",
+      "url": "https://www.iso.org/standard/62410.html",
+      "scope": "试验筛技术要求与测试；用于说明筛具可追溯性，不用于替换本项目区间。"
+    },
+    {
+      "title": "ASTM E11-24 — Woven Wire Test Sieve Cloth and Test Sieves",
+      "url": "https://store.astm.org/e0011-24.html",
+      "scope": "金属丝筛布与试验筛技术要求；用于筛具质量参考。"
+    }
   ]
 }

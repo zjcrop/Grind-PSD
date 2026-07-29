@@ -1,68 +1,91 @@
 # Grind-PSD
 
-Grind-PSD 是一个公开的咖啡研磨粒径分布统计工具，用来按照统一筛分标准记录、比较和共享不同咖啡研磨器在不同刻度下的粉径分布结果。
+Grind-PSD 是一个公开的咖啡研磨粒径分布记录、共享与对比工具。当前 v3.0 以项目原始单文件工具为交互基线，保留三步称重向导、历史记录、研磨刻度 3D 阵列图和双色重叠对比，并增加标准化社区数据库、按用户 ID 独立归档、旧数据迁移和 PWA App 安装能力。
 
-在线地址：
+在线使用：
 
-- https://zjcrop.github.io/Grind-PSD/
+- <https://zjcrop.github.io/Grind-PSD/>
 
-## 核心功能
+## 功能
 
-- 网页端离线记录：品牌、型号、刻度、投粉量、筛层重量、备注均保存在本机浏览器。
-- PWA app 化：支持在安卓 Chrome 和 iOS Safari 中添加到主屏幕，首次加载后可离线使用基础记录功能。
-- 标准化筛分体系：默认采用 18 / 24 / 35 / 60 目和 80 目底盘极细粉五段分布。
-- 自动计算指标：各筛层占比、粗粉占比、极细粉占比、近似 D10 / D50 / D90 和分布跨度。
-- 社区数据库：从 `data/database.json` 下载其他用户公开提交的记录，用于对比分析；同时按 `data/users/<user_id>.json` 独立归集用户结果。
-- 公开上传通道：网页生成标准 JSON，并通过 GitHub Issue 提交；仓库 Actions 校验后写入数据库。
-- 数据导入导出：支持导出本地 JSON、导入本地备份或他人分享的标准记录。
+- 原版三步流程：选择品牌/型号 → 录入刻度与条件 → 五档称重。
+- 原版图表：单条柱状图、同一磨豆机多刻度 3D 阵列、两条记录重叠比较、两组阵列并排比较。
+- 本地优先：记录保存在浏览器；支持 JSON 备份、旧版 JSON 导入和 CSV 导出。
+- 旧数据兼容：首次运行会自动迁移 `grindAnalyzerV1` 与 `grindPsdAppV2` 的浏览器记录。
+- 社区数据库：下载、筛选、导入或比较其他用户的公开结果。
+- 独立用户库：总库位于 `data/database.json`，每个用户另存于 `data/users/<user_id>.json`。
+- 安全上传：网页生成 GitHub Issue；Actions 在服务端校验后入库，前端不保存 GitHub 写入令牌。
+- PWA App：Android、iOS、Windows 和 macOS 的支持浏览器可添加到主屏幕/安装为应用；核心记录与绘图可离线使用。
 
-## 标准体系
+## 固定测量体系
 
-当前标准版本为 `grind-psd-sieve-v1`，字段定义见：
+标准 ID：`grind-psd-sieve-v1`
 
-- `data/standard.json`
-- `docs/data-standard.md`
+| 原始档位标签 | 数据库粒径区间 | 原始重量字段 |
+|---|---:|---|
+| 18 目筛上 | ≥1000 μm | `mesh18_retained_g` |
+| 24 目筛上 | 800–1000 μm | `mesh24_retained_g` |
+| 35 目筛上 | 500–800 μm | `mesh35_retained_g` |
+| 60 目筛上 | 300–500 μm | `mesh60_retained_g` |
+| 80 目档底盘 | <300 μm | `pan80_lt300_g` |
 
-筛层定义如下：
+这里的“目数”是原始工具沿用的项目档位标签，公开数据库实际按右侧粒径区间比较。不得把这些标签自动换算成 ASTM、ISO 或其他国家的标准筛孔径；如需改变区间，必须创建新的 `standardId`，不能修改 v1 的既有定义。
 
-| 标准字段 | 名称 | 粒径区间 | 记录值 |
-|---|---:|---:|---:|
-| `mesh18_retained_g` | 18 目筛上 | `>=1000 μm` | 重量 g |
-| `mesh24_retained_g` | 24 目筛上 | `800-1000 μm` | 重量 g |
-| `mesh35_retained_g` | 35 目筛上 | `500-800 μm` | 重量 g |
-| `mesh60_retained_g` | 60 目筛上 | `300-500 μm` | 重量 g |
-| `pan80_lt300_g` | 80 目底盘极细粉 | `<300 μm` | 重量 g |
+完整标准见：
 
-注意：这里沿用项目原始工具中的标称孔径体系，优先保证社区数据之间可比。若使用实验室标准筛或其他孔径体系，必须在记录中注明筛具与校准差异，不应直接混入默认数据库。
+- [`data/standard.json`](data/standard.json)
+- [`data/record.schema.json`](data/record.schema.json)
+- [`docs/data-standard.md`](docs/data-standard.md)
 
-## 公开数据提交流程
+## 公开提交流程
 
-1. 在网页中填写或导入一条粒径记录。
-2. 点击“提交到社区数据库”。
-3. 网页会打开一个预填好的 GitHub Issue，正文包含标准 JSON。
-4. 提交 Issue 后，`.github/workflows/ingest-result.yml` 会校验数据。
-5. 校验通过后，记录会被追加到 `data/database.json`，并同步写入 `data/users/<user_id>.json`，供所有人下载对比。
+1. 在网页中完成并保存一条本地记录。
+2. 在“当前记录”点击“提交到社区库”。
+3. 确认质量等级与 CC BY 4.0 数据许可。
+4. 网页打开预填 GitHub Issue。
+5. `.github/workflows/ingest-result.yml` 解析、校验和重新计算结果。
+6. 校验通过后，记录同时写入总库和用户独立文件，Issue 自动回复并关闭。
 
-纯静态网页不能安全地直接写入 GitHub 仓库，因为写入令牌不能暴露在前端。当前方案使用 GitHub Issue + Actions 作为公开、可审查、可回滚的数据同步通道。
+第一个使用某个 `user.id` 成功入库的 GitHub 账号会成为该 ID 的提交所有者。后续其他 GitHub 账号不能向同一用户 ID 写入数据，以减少冒名提交。显示名称可以是中文；用户 ID 仅允许 2–48 位小写字母、数字、下划线和连字符。
 
-## 本地开发
+## 数据质量
 
-这是一个无构建步骤的静态项目，直接打开 `index.html` 即可；推荐用本地 HTTP 服务预览：
+公开记录必须填写投粉量、筛具/装置、筛分方法与时长。质量等级由五档回收总重相对投粉量的误差决定：
+
+| 等级 | 回收质量误差 | 用途 |
+|---|---:|---|
+| A | ≤2%，且方法字段完整 | 高可比 |
+| B | ≤5% | 可比 |
+| C | >5% 且 ≤10% | 谨慎比较 |
+| D | >10% | 只允许本地保存，不接受公开入库 |
+
+正式比较建议每个刻度至少进行 3 次独立重复。五段筛分数据不能等同于激光衍射或图像法的连续粒径分布，因此 v3.0 不在主界面强调由五个宽区间线性插值得出的 D10/D50/D90。
+
+## 本地运行
+
+本项目无构建步骤：
 
 ```bash
 python3 -m http.server 8000
 ```
 
-然后访问：
+打开 <http://localhost:8000/>。
 
-```text
-http://localhost:8000/
+检查：
+
+```bash
+node --check assets/psd-core.js
+node --check assets/app.js
+python3 -m unittest discover -s tests -v
 ```
 
-## 安装成 App
+## 部署
 
-见 `docs/app-install.md`。当前采用 PWA 方式，不需要把 GitHub 写入令牌放进客户端；数据上传仍使用 GitHub Issue + Actions 的公开审核通道。
+源代码保存在 `main`。`.github/workflows/pages.yml` 会验证静态文件，并把网页运行所需内容同步到 `gh-pages`；仓库的 GitHub Pages 从 `gh-pages` 发布。数据库每次更新也会触发同一发布流程。
 
 ## 许可证
 
-本项目使用 Apache License 2.0。
+- 程序代码：Apache License 2.0，见 [`LICENSE`](LICENSE)。
+- 社区测量数据：CC BY 4.0，见 [`DATA_LICENSE.md`](DATA_LICENSE.md)。
+
+贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

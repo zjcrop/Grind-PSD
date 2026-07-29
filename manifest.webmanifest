@@ -1,21 +1,50 @@
 {
-  "name": "Grind-PSD 咖啡粒径分布统计",
+  "id": "./",
+  "name": "Grind-PSD 咖啡研磨粒径分布分析器",
   "short_name": "Grind-PSD",
-  "description": "按照统一筛分标准记录、比较和共享咖啡研磨粒径分布结果。",
+  "description": "按统一五段筛分标准记录、共享与对比咖啡研磨粒径分布。",
   "lang": "zh-CN",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "any",
-  "background_color": "#f7f8f6",
-  "theme_color": "#1f8a70",
-  "categories": ["productivity", "utilities"],
+  "background_color": "#14100d",
+  "theme_color": "#14100d",
+  "categories": [
+    "productivity",
+    "utilities",
+    "education"
+  ],
   "icons": [
     {
-      "src": "assets/icon.svg",
+      "src": "./assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./assets/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

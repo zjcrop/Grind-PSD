@@ -1,29 +1,35 @@
 "use strict";
 
-const CACHE_NAME = "grind-psd-pwa-v1";
+const SHELL_CACHE = "grind-psd-shell-v3.0.0";
+const DATA_CACHE = "grind-psd-data-v3.0.0";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./assets/psd-core.js",
   "./assets/app.js",
   "./assets/styles.css",
   "./assets/icon.svg",
-  "./data/database.json",
+  "./assets/icons/icon-192.png",
+  "./assets/icons/icon-512.png",
+  "./assets/icons/apple-touch-icon.png",
+  "./manifest.webmanifest",
   "./data/standard.json",
-  "./manifest.webmanifest"
+  "./data/record.schema.json"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches.open(SHELL_CACHE)
       .then((cache) => cache.addAll(APP_SHELL))
       .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", (event) => {
+  const current = new Set([SHELL_CACHE, DATA_CACHE]);
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => !current.has(key)).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -36,40 +42,49 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request, "./index.html"));
+    event.respondWith(networkFirst(request, SHELL_CACHE, "./index.html"));
     return;
   }
 
-  if (url.pathname.endsWith("/data/database.json") || url.pathname.endsWith("/data/standard.json")) {
-    event.respondWith(networkFirst(request));
+  if (
+    url.pathname.endsWith("/data/database.json") ||
+    url.pathname.includes("/data/users/")
+  ) {
+    event.respondWith(networkFirst(request, DATA_CACHE));
     return;
   }
 
-  event.respondWith(cacheFirst(request));
+  event.respondWith(staleWhileRevalidate(request));
 });
 
-async function networkFirst(request, fallbackPath) {
-  const cache = await caches.open(CACHE_NAME);
+async function networkFirst(request, cacheName, fallbackPath = "") {
+  const cache = await caches.open(cacheName);
+  const key = stripSearch(request);
   try {
     const response = await fetch(request);
-    if (response.ok) await cache.put(stripSearch(request), response.clone());
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await cache.put(key, response.clone());
     return response;
   } catch (error) {
-    const cached = await cache.match(stripSearch(request)) || await cache.match(request, { ignoreSearch: true });
+    const cached = await cache.match(key) || await cache.match(request, { ignoreSearch: true });
     if (cached) return cached;
-    if (fallbackPath) return cache.match(fallbackPath);
+    if (fallbackPath) {
+      const fallback = await caches.match(fallbackPath);
+      if (fallback) return fallback;
+    }
     throw error;
   }
 }
 
-async function cacheFirst(request) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(stripSearch(request)) || await cache.match(request, { ignoreSearch: true });
-  if (cached) return cached;
-
-  const response = await fetch(request);
-  if (response.ok) await cache.put(stripSearch(request), response.clone());
-  return response;
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const key = stripSearch(request);
+  const cached = await cache.match(key) || await cache.match(request, { ignoreSearch: true });
+  const network = fetch(request).then((response) => {
+    if (response.ok) cache.put(key, response.clone());
+    return response;
+  }).catch(() => null);
+  return cached || network || Response.error();
 }
 
 function stripSearch(request) {

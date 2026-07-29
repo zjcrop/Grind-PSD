@@ -1,143 +1,281 @@
 "use strict";
 
-const REPO = "zjcrop/Grind-PSD";
-const STANDARD_ID = "grind-psd-sieve-v1";
-const STORE_KEY = "grindPsdAppV2";
-const DATABASE_PATH = "data/database.json";
+const Core = window.GrindPSDCore;
+const REPOSITORY = "zjcrop/Grind-PSD";
+const STORAGE_KEY = "grindPsdAppV3";
+const LEGACY_KEYS = ["grindPsdAppV2", "grindAnalyzerV1"];
+const COMMUNITY_CACHE_KEY = "grindPsdCommunityCacheV3";
+const DATABASE_PATH = "./data/database.json";
+const USER_DATA_PATH = "./data/users";
+const PALETTE = ["#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5", "#4dd0e1", "#ffd54f", "#ff8a65"];
 
-const SIEVE_BINS = [
-  {
-    id: "mesh18_retained_g",
-    label: "18 目筛上",
-    range: ">=1000 μm",
-    lowerUm: 1000,
-    upperUm: 1400,
-    color: "#5470c6"
-  },
-  {
-    id: "mesh24_retained_g",
-    label: "24 目筛上",
-    range: "800-1000 μm",
-    lowerUm: 800,
-    upperUm: 1000,
-    color: "#1f8a70"
-  },
-  {
-    id: "mesh35_retained_g",
-    label: "35 目筛上",
-    range: "500-800 μm",
-    lowerUm: 500,
-    upperUm: 800,
-    color: "#62a87c"
-  },
-  {
-    id: "mesh60_retained_g",
-    label: "60 目筛上",
-    range: "300-500 μm",
-    lowerUm: 300,
-    upperUm: 500,
-    color: "#f2b84b"
-  },
-  {
-    id: "pan80_lt300_g",
-    label: "80 目底盘极细粉",
-    range: "<300 μm",
-    lowerUm: 80,
-    upperUm: 300,
-    color: "#d95f59"
-  }
-];
+if (!Core) {
+  throw new Error("GrindPSDCore failed to load.");
+}
 
 const state = {
-  store: loadStore(),
+  store: null,
   selectedRecordId: null,
+  selectedRecordSource: "local",
   communityRecords: [],
+  communityMeta: null,
   selectedCommunityIds: new Set(),
-  standard: null
+  wizard: freshWizard(),
+  activeTab: "current",
+  deferredInstallPrompt: null,
+  migrationMessage: ""
 };
-
-const dom = {};
 
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
-  cacheDom();
+  state.store = loadStore();
+  buildStandardRows();
+  buildWeighRows();
   bindEvents();
-  buildWeightInputs();
-  renderStandardTable();
-  hydrateSettingsFields();
-  selectInitialRecord();
+  updateActiveUser();
+  selectNewestRecord();
+  loadCachedCommunity();
   renderAll();
-  downloadCommunity({ silent: true });
+  updateNetworkStatus();
   registerServiceWorker();
+
+  if (state.store.settings.autoSync && navigator.onLine) {
+    syncCommunity({ quiet: true });
+  }
+
+  if (state.migrationMessage) {
+    setTimeout(() => toast(state.migrationMessage, "success"), 300);
+  }
+
+  if (!state.store.records.length && !state.store.settings.hasOpenedWizard) {
+    state.store.settings.hasOpenedWizard = true;
+    saveStore();
+    setTimeout(() => openWizard(), 260);
+  }
 }
 
-function registerServiceWorker() {
-  if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js").catch(() => {
-      // PWA registration failure should not block the measurement tool.
-    });
-  });
+function $(id) {
+  return document.getElementById(id);
 }
 
-function cacheDom() {
-  [
-    "new-record-btn",
-    "sync-btn",
-    "settings-btn",
-    "submit-selected-btn",
-    "export-record-btn",
-    "distribution-chart",
-    "chart-unit",
-    "metric-grid",
-    "record-summary",
-    "local-search",
-    "local-user-filter",
-    "local-table",
-    "export-all-btn",
-    "import-btn",
-    "import-file",
-    "download-community-btn",
-    "import-community-selected-btn",
-    "community-search",
-    "community-user-filter",
-    "community-status",
-    "community-table",
-    "compare-unit",
-    "compare-a",
-    "compare-b",
-    "compare-chart",
-    "compare-metrics",
-    "standard-table",
-    "load-standard-btn",
-    "record-dialog",
-    "record-user-id",
-    "record-user-name",
-    "record-brand",
-    "record-model",
-    "record-setting",
-    "record-dose",
-    "record-bean",
-    "record-method",
-    "record-notes",
-    "brand-list",
-    "model-list",
-    "weight-inputs",
-    "weight-total",
-    "same-grinder-btn",
-    "save-record-btn",
-    "settings-dialog",
-    "settings-user-id",
-    "settings-user-name",
-    "save-settings-btn",
-    "submit-dialog",
-    "submit-json",
-    "copy-submit-json-btn",
-    "open-issue-btn",
-    "toast"
-  ].forEach((id) => {
-    dom[id] = document.getElementById(id);
+function freshWizard() {
+  return {
+    brand: "",
+    model: "",
+    color: PALETTE[0],
+    setting: "",
+    settingOrder: null,
+    doseG: 10,
+    bean: "",
+    roastLevel: "",
+    durationSec: 60,
+    sieveDevice: "Grind-PSD 五段筛具",
+    method: "手动水平往复筛分",
+    replicate: 1,
+    notes: "",
+    weightsGrams: Core.normalizeWeights({})
+  };
+}
+
+function defaultStore() {
+  const random = Math.random().toString(36).slice(2, 8);
+  return {
+    schemaVersion: Core.SCHEMA_VERSION,
+    user: {
+      id: `user-${random}`,
+      name: "本地用户"
+    },
+    settings: {
+      autoSync: true,
+      hasOpenedWizard: false
+    },
+    catalog: {},
+    records: [],
+    lastGrinder: null,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function loadStore() {
+  const base = defaultStore();
+  let current = null;
+  try {
+    current = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  } catch (error) {
+    current = null;
+  }
+
+  if (current && Array.isArray(current.records)) {
+    const normalized = normalizeStore(current, base);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  }
+
+  const migrated = migrateLegacyStores(base);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated.store));
+  state.migrationMessage = migrated.message;
+  return migrated.store;
+}
+
+function normalizeStore(input, base) {
+  const userId = Core.normalizeUserId(input.user?.id) || base.user.id;
+  const records = (input.records || []).map(Core.normalizeRecord).filter(Boolean);
+  const store = {
+    ...base,
+    ...input,
+    schemaVersion: Core.SCHEMA_VERSION,
+    user: {
+      id: userId,
+      name: Core.cleanText(input.user?.name || userId, 60)
+    },
+    settings: {
+      ...base.settings,
+      ...(input.settings || {})
+    },
+    catalog: input.catalog && typeof input.catalog === "object" ? input.catalog : {},
+    records: dedupeRecords(records),
+    lastGrinder: input.lastGrinder || null
+  };
+  rebuildCatalogFromRecords(store);
+  return store;
+}
+
+function migrateLegacyStores(base) {
+  const records = [];
+  const messages = [];
+  let user = { ...base.user };
+  let lastGrinder = null;
+  const catalog = {};
+
+  try {
+    const v2 = JSON.parse(localStorage.getItem(LEGACY_KEYS[0]));
+    if (v2 && Array.isArray(v2.records)) {
+      user = {
+        id: Core.normalizeUserId(v2.user?.id) || user.id,
+        name: Core.cleanText(v2.user?.name || v2.user?.id || user.name, 60)
+      };
+      v2.records.map(Core.normalizeRecord).filter(Boolean).forEach((record) => {
+        records.push({ ...record, source: "migrated-v2" });
+      });
+      lastGrinder = v2.lastGrinder || lastGrinder;
+      messages.push(`${v2.records.length} 条上一版记录`);
+    }
+  } catch (error) {
+    // Ignore invalid legacy local data and continue with the original format.
+  }
+
+  try {
+    const v1 = JSON.parse(localStorage.getItem(LEGACY_KEYS[1]));
+    if (v1 && v1.brands && typeof v1.brands === "object") {
+      Object.entries(v1.brands).forEach(([brand, brandData]) => {
+        ensureCatalogEntry({ catalog }, brand);
+        Object.entries(brandData.models || {}).forEach(([model, modelData], modelIndex) => {
+          const color = Core.normalizeHexColor(modelData.color, PALETTE[modelIndex % PALETTE.length]);
+          ensureCatalogEntry({ catalog }, brand, model, color);
+          (modelData.records || []).forEach((legacyRecord) => {
+            const createdAt = parseLegacyDate(legacyRecord.time);
+            const record = Core.createRecord({
+              user,
+              grinder: {
+                brand,
+                model,
+                setting: legacyRecord.dial,
+                settingOrder: Core.deriveSettingOrder(legacyRecord.dial),
+                color
+              },
+              sample: {
+                doseG: legacyRecord.total,
+                method: "原版记录：筛分方法未填写",
+                durationSec: 0,
+                sieveDevice: "",
+                replicate: 1
+              },
+              weightsGrams: legacyRecord.weights,
+              notes: "由 grindAnalyzerV1 自动迁移",
+              source: "migrated-v1",
+              createdAt
+            });
+            records.push(record);
+          });
+        });
+      });
+      if (v1.last) {
+        lastGrinder = {
+          brand: v1.last.brand,
+          model: v1.last.model,
+          setting: v1.last.dial || ""
+        };
+      }
+      const count = Object.values(v1.brands).reduce((total, brandData) => {
+        return total + Object.values(brandData.models || {}).reduce((modelTotal, modelData) => {
+          return modelTotal + (modelData.records || []).length;
+        }, 0);
+      }, 0);
+      if (count) messages.push(`${count} 条原版记录`);
+    }
+  } catch (error) {
+    // Invalid legacy storage must not prevent the app from starting.
+  }
+
+  const store = {
+    ...base,
+    user,
+    catalog,
+    records: dedupeRecords(records),
+    lastGrinder
+  };
+  rebuildCatalogFromRecords(store);
+  return {
+    store,
+    message: messages.length ? `已迁移 ${messages.join("、")}。` : ""
+  };
+}
+
+function parseLegacyDate(value) {
+  if (!value) return new Date().toISOString();
+  const date = new Date(String(value).replace(/\//g, "-"));
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function saveStore() {
+  state.store.updatedAt = new Date().toISOString();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.store));
+}
+
+function dedupeRecords(records) {
+  const seen = new Set();
+  return records.filter((record) => {
+    if (!record || seen.has(record.id)) return false;
+    seen.add(record.id);
+    return true;
+  }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function ensureCatalogEntry(store, brand, model = "", color = PALETTE[0]) {
+  const brandName = Core.cleanText(brand, 80);
+  const modelName = Core.cleanText(model, 80);
+  if (!brandName) return null;
+  if (!store.catalog[brandName]) store.catalog[brandName] = { models: {} };
+  if (!modelName) return store.catalog[brandName];
+  if (!store.catalog[brandName].models[modelName]) {
+    store.catalog[brandName].models[modelName] = {
+      color: Core.normalizeHexColor(color, paletteForIndex(catalogModelCount(store)))
+    };
+  }
+  return store.catalog[brandName].models[modelName];
+}
+
+function catalogModelCount(store) {
+  return Object.values(store.catalog || {}).reduce((total, brand) => {
+    return total + Object.keys(brand.models || {}).length;
+  }, 0);
+}
+
+function rebuildCatalogFromRecords(store) {
+  if (!store.catalog || typeof store.catalog !== "object") store.catalog = {};
+  store.records.forEach((record) => {
+    ensureCatalogEntry(store, record.grinder.brand, record.grinder.model, record.grinder.color);
   });
 }
 
@@ -146,1033 +284,1803 @@ function bindEvents() {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
 
-  dom["new-record-btn"].addEventListener("click", openRecordDialog);
-  dom["settings-btn"].addEventListener("click", openSettingsDialog);
-  dom["sync-btn"].addEventListener("click", () => downloadCommunity({ silent: false }));
-  dom["download-community-btn"].addEventListener("click", () => downloadCommunity({ silent: false }));
-  dom["import-community-selected-btn"].addEventListener("click", importSelectedCommunityRecords);
-  dom["submit-selected-btn"].addEventListener("click", openSubmitDialog);
-  dom["export-record-btn"].addEventListener("click", exportSelectedRecord);
-  dom["export-all-btn"].addEventListener("click", exportLocalStore);
-  dom["import-btn"].addEventListener("click", () => dom["import-file"].click());
-  dom["import-file"].addEventListener("change", importFile);
-  dom["chart-unit"].addEventListener("change", renderDashboard);
-  dom["compare-unit"].addEventListener("change", renderCompare);
-  dom["compare-a"].addEventListener("change", renderCompare);
-  dom["compare-b"].addEventListener("change", renderCompare);
-  dom["local-search"].addEventListener("input", renderLocalTable);
-  dom["local-user-filter"].addEventListener("change", renderLocalTable);
-  dom["community-search"].addEventListener("input", renderCommunityTable);
-  dom["community-user-filter"].addEventListener("change", renderCommunityTable);
-  dom["save-record-btn"].addEventListener("click", saveRecordFromDialog);
-  dom["same-grinder-btn"].addEventListener("click", fillLastGrinder);
-  dom["save-settings-btn"].addEventListener("click", saveSettings);
-  dom["copy-submit-json-btn"].addEventListener("click", copySubmitJson);
-  dom["open-issue-btn"].addEventListener("click", openIssueForSubmit);
-  dom["load-standard-btn"].addEventListener("click", loadStandardJson);
+  $("newRecordBtn").addEventListener("click", () => openWizard());
+  $("syncBtn").addEventListener("click", () => syncCommunity({ quiet: false }));
+  $("communitySyncBtn").addEventListener("click", () => syncCommunity({ quiet: false }));
+  $("exportBtn").addEventListener("click", exportAllJson);
+  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", importJsonFile);
+  $("installBtn").addEventListener("click", installApp);
+  $("settingsBtn").addEventListener("click", openSettings);
+  $("saveSettingsBtn").addEventListener("click", saveSettings);
 
+  $("historySearch").addEventListener("input", renderHistory);
+  $("historyGrinderFilter").addEventListener("change", renderHistory);
+  $("historyGradeFilter").addEventListener("change", renderHistory);
+  $("exportCsvBtn").addEventListener("click", () => exportRecordsCsv(getFilteredHistoryRecords(), "grind-psd-local"));
+  $("clearRecordsBtn").addEventListener("click", clearLocalRecords);
+
+  $("sel3dScope").addEventListener("change", () => {
+    refresh3dGrinderOptions();
+    render3D();
+  });
+  $("sel3dGrinder").addEventListener("change", render3D);
+  $("sel3dUnit").addEventListener("change", render3D);
+
+  $("cmpUnit").addEventListener("change", renderCompare);
+  $("cmpRecordA").addEventListener("change", renderCompare);
+  $("cmpRecordB").addEventListener("change", renderCompare);
+  $("swapCompareBtn").addEventListener("click", swapCompare);
+
+  ["communitySearch", "communityUserFilter", "communityBrandFilter", "communityGradeFilter"].forEach((id) => {
+    $(id).addEventListener(id === "communitySearch" ? "input" : "change", renderCommunity);
+  });
+  $("communityImportBtn").addEventListener("click", importSelectedCommunity);
+  $("communityCompareBtn").addEventListener("click", compareSelectedCommunity);
+  $("communityDownloadBtn").addEventListener("click", downloadSelectedCommunity);
+  $("communityCsvBtn").addEventListener("click", () => exportRecordsCsv(getFilteredCommunityRecords(), "grind-psd-community"));
+  $("communitySubmitBtn").addEventListener("click", openSubmitModal);
+
+  $("addBrandBtn").addEventListener("click", addBrand);
+  $("addModelBtn").addEventListener("click", addModel);
+  $("productColor").addEventListener("input", changeProductColor);
+  $("sameAsLastBtn").addEventListener("click", sameAsLast);
+  $("wizardNext1").addEventListener("click", () => goWizardStep(2));
+  $("wizardBack2").addEventListener("click", () => goWizardStep(1));
+  $("wizardNext2").addEventListener("click", () => goWizardStep(3));
+  $("wizardBack3").addEventListener("click", () => goWizardStep(2));
+  $("saveRecordBtn").addEventListener("click", saveWizardRecord);
+  $("doseInput").addEventListener("input", updateWeightSummary);
+
+  $("licenseConsent").addEventListener("change", updateSubmitPayload);
+  $("copySubmitBtn").addEventListener("click", copySubmitJson);
+  $("openIssueBtn").addEventListener("click", openSubmissionIssue);
+
+  document.querySelectorAll("[data-close]").forEach((button) => {
+    button.addEventListener("click", () => hideModal(button.dataset.close));
+  });
+
+  document.querySelectorAll(".overlay").forEach((overlay) => {
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) hideModal(overlay.id);
+    });
+  });
+
+  document.addEventListener("keydown", handleKeyboard);
   window.addEventListener("resize", debounce(() => {
-    renderDashboardChart();
-    renderCompare();
+    renderCurrentChart();
+    if (state.activeTab === "array3d") render3D();
+    if (state.activeTab === "compare") renderCompare();
   }, 120));
+  window.addEventListener("online", () => {
+    updateNetworkStatus();
+    if (state.store.settings.autoSync) syncCommunity({ quiet: true });
+  });
+  window.addEventListener("offline", updateNetworkStatus);
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    state.deferredInstallPrompt = event;
+    $("installBtn").textContent = "安装 App";
+  });
+  window.addEventListener("appinstalled", () => {
+    state.deferredInstallPrompt = null;
+    toast("Grind-PSD 已安装。", "success");
+  });
 }
 
-function defaultStore() {
-  const generatedUserId = `local-${Math.random().toString(36).slice(2, 8)}`;
-  return {
-    schemaVersion: "2.0.0",
-    user: {
-      id: generatedUserId,
-      name: "本地用户"
-    },
-    records: [],
-    lastGrinder: null
-  };
-}
-
-function loadStore() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return defaultStore();
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.records)) return defaultStore();
-    return {
-      ...defaultStore(),
-      ...parsed,
-      user: {
-        ...defaultStore().user,
-        ...(parsed.user || {})
-      }
-    };
-  } catch (error) {
-    return defaultStore();
+function handleKeyboard(event) {
+  if (event.key === "Escape") {
+    const open = [...document.querySelectorAll(".overlay:not(.hidden)")].pop();
+    if (open) hideModal(open.id);
+    return;
   }
-}
-
-function saveStore() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(state.store));
+  if (event.key !== "Enter" || $("wizard").classList.contains("hidden")) return;
+  if (document.activeElement === $("newBrandInput")) addBrand();
+  if (document.activeElement === $("newModelInput")) addModel();
+  if (document.activeElement === $("dialInput")) goWizardStep(3);
 }
 
 function switchTab(name) {
+  state.activeTab = name;
   document.querySelectorAll(".tab").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.tab === name);
+    const active = button.dataset.tab === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
   });
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("is-active", panel.id === `tab-${name}`);
+    const active = panel.id === `tab-${name}`;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
   });
-  if (name === "local") renderLocalTable();
-  if (name === "community") renderCommunityTable();
-  if (name === "compare") renderCompare();
-  if (name === "dashboard") renderDashboard();
+
+  if (name === "history") renderHistory();
+  if (name === "array3d") {
+    refresh3dGrinderOptions();
+    render3D();
+  }
+  if (name === "compare") {
+    refreshCompareOptions();
+    renderCompare();
+  }
+  if (name === "community") renderCommunity();
+  if (name === "current") renderCurrent();
 }
 
-function buildWeightInputs() {
-  dom["weight-inputs"].innerHTML = SIEVE_BINS.map((bin) => `
-    <div class="weight-row">
-      <div class="weight-name">
-        <strong>${escapeHtml(bin.label)}</strong>
-        <span>${escapeHtml(bin.range)} · 字段 ${escapeHtml(bin.id)}</span>
-      </div>
-      <input type="number" min="0" step="0.01" inputmode="decimal" data-bin="${escapeHtml(bin.id)}" placeholder="0.00">
-    </div>
-  `).join("");
-
-  dom["weight-inputs"].querySelectorAll("input").forEach((input) => {
-    input.addEventListener("input", updateWeightTotal);
-  });
+function renderAll() {
+  updateActiveUser();
+  renderCurrent();
+  refreshHistoryFilters();
+  renderHistory();
+  refresh3dGrinderOptions();
+  refreshCompareOptions();
+  refreshCommunityFilters();
+  renderCommunity();
+  updateCommunitySummary();
 }
 
-function renderStandardTable() {
-  dom["standard-table"].innerHTML = SIEVE_BINS.map((bin) => `
-    <tr>
-      <td><code>${escapeHtml(bin.id)}</code></td>
-      <td>${escapeHtml(bin.label)}</td>
-      <td>${escapeHtml(bin.range)}</td>
-      <td>筛上重量，单位 g</td>
-    </tr>
-  `).join("");
+function updateActiveUser() {
+  $("activeUserText").textContent = `本地用户：${state.store.user.id}`;
 }
 
-function hydrateSettingsFields() {
-  dom["settings-user-id"].value = state.store.user.id || "";
-  dom["settings-user-name"].value = state.store.user.name || "";
+function updateNetworkStatus(message = "") {
+  const online = navigator.onLine;
+  $("networkDot").className = `status-dot ${online ? "online" : "offline"}`;
+  $("networkText").textContent = message || (online ? "网络可用 · 本地数据已保存" : "离线模式 · 可继续记录，联网后再同步");
 }
 
-function openSettingsDialog() {
-  hydrateSettingsFields();
-  showDialog(dom["settings-dialog"]);
+function openSettings() {
+  $("settingsUserId").value = state.store.user.id;
+  $("settingsUserName").value = state.store.user.name;
+  $("autoSyncInput").checked = Boolean(state.store.settings.autoSync);
+  showModal("settingsModal");
 }
 
-function saveSettings(event) {
-  event.preventDefault();
-  const userId = normalizeUserId(dom["settings-user-id"].value);
-  if (!userId) {
-    toast("用户 ID 不能为空，只能使用字母、数字、下划线和连字符。", true);
+function saveSettings() {
+  const id = Core.normalizeUserId($("settingsUserId").value);
+  const name = Core.cleanText($("settingsUserName").value || id, 60);
+  if (!/^[a-z0-9][a-z0-9_-]{1,47}$/.test(id)) {
+    toast("用户 ID 必须为 2–48 位小写字母、数字、下划线或连字符。", "error");
     return;
   }
-  state.store.user.id = userId;
-  state.store.user.name = dom["settings-user-name"].value.trim() || userId;
+
+  const previousId = state.store.user.id;
+  const previousName = state.store.user.name;
+  state.store.user = { id, name };
+  state.store.settings.autoSync = $("autoSyncInput").checked;
+  if (previousId !== id || previousName !== name) {
+    state.store.records = state.store.records.map((record) => {
+      if (record.user.id !== previousId) return record;
+      return { ...record, user: { id, name }, updatedAt: new Date().toISOString() };
+    });
+  }
   saveStore();
-  dom["settings-dialog"].close();
+  hideModal("settingsModal");
   renderAll();
-  toast("用户设置已保存。");
+  toast("用户设置已保存。", "success");
 }
 
-function openRecordDialog() {
-  fillRecordDefaults();
-  showDialog(dom["record-dialog"]);
+function openWizard(options = {}) {
+  state.wizard = freshWizard();
+  if (options.useLast && state.store.lastGrinder) {
+    Object.assign(state.wizard, state.store.lastGrinder);
+  } else if (state.store.lastGrinder) {
+    state.wizard.color = state.store.lastGrinder.color || PALETTE[0];
+  }
+  $("wizardUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
+  $("sameAsLastBtn").hidden = !state.store.lastGrinder;
+  clearWizardFields();
+  renderWizardStep1();
+  goWizardStep(options.useLast ? 2 : 1);
+  showModal("wizard");
 }
 
-function fillRecordDefaults() {
-  dom["record-user-id"].value = state.store.user.id || "";
-  dom["record-user-name"].value = state.store.user.name || "";
-  dom["record-brand"].value = "";
-  dom["record-model"].value = "";
-  dom["record-setting"].value = "";
-  dom["record-dose"].value = "";
-  dom["record-bean"].value = "";
-  dom["record-method"].value = "手动摇筛 60 秒";
-  dom["record-notes"].value = "";
-  dom["weight-inputs"].querySelectorAll("input").forEach((input) => {
+function clearWizardFields() {
+  $("newBrandInput").value = "";
+  $("newModelInput").value = "";
+  $("dialInput").value = "";
+  $("dialOrderInput").value = "";
+  $("doseInput").value = "10.00";
+  $("beanInput").value = "";
+  $("roastInput").value = "";
+  $("durationInput").value = "60";
+  $("deviceInput").value = "Grind-PSD 五段筛具";
+  $("methodInput").value = "手动水平往复筛分";
+  $("replicateInput").value = "1";
+  $("notesInput").value = "";
+  document.querySelectorAll("#weighRows input").forEach((input) => {
     input.value = "";
   });
-  updateWeightTotal();
-  refreshDatalists();
-  if (state.store.lastGrinder) fillLastGrinder();
 }
 
-function fillLastGrinder(event) {
-  if (event) event.preventDefault();
-  const last = state.store.lastGrinder;
-  if (!last) {
-    toast("还没有上次磨豆机记录。", true);
+function renderWizardStep1() {
+  const brands = Object.keys(state.store.catalog).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const brandTags = $("brandTags");
+  brandTags.innerHTML = brands.length
+    ? brands.map((brand) => `<button class="tag ${brand === state.wizard.brand ? "selected" : ""}" type="button" data-brand="${escapeHtml(brand)}">${escapeHtml(brand)}</button>`).join("")
+    : '<span class="note inline-note">还没有品牌，请在下方新增。</span>';
+  brandTags.querySelectorAll("[data-brand]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.wizard.brand = button.dataset.brand;
+      state.wizard.model = "";
+      renderWizardStep1();
+    });
+  });
+
+  const brandData = state.store.catalog[state.wizard.brand];
+  $("modelField").hidden = !brandData;
+  if (brandData) {
+    const models = Object.keys(brandData.models || {}).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    $("modelTags").innerHTML = models.length
+      ? models.map((model) => {
+        const color = Core.normalizeHexColor(brandData.models[model].color);
+        return `<button class="tag ${model === state.wizard.model ? "selected" : ""}" type="button" data-model="${escapeHtml(model)}"><span class="dot" style="background:${color}"></span>${escapeHtml(model)}</button>`;
+      }).join("")
+      : '<span class="note inline-note">该品牌还没有型号，请在下方新增。</span>';
+    $("modelTags").querySelectorAll("[data-model]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.wizard.model = button.dataset.model;
+        state.wizard.color = Core.normalizeHexColor(brandData.models[state.wizard.model]?.color);
+        renderWizardStep1();
+      });
+    });
+  }
+
+  const modelData = brandData?.models?.[state.wizard.model];
+  $("colorField").hidden = !modelData;
+  if (modelData) $("productColor").value = Core.normalizeHexColor(modelData.color);
+  $("wizardNext1").disabled = !(state.wizard.brand && state.wizard.model);
+}
+
+function addBrand() {
+  const brand = Core.cleanText($("newBrandInput").value, 80);
+  if (!brand) return;
+  ensureCatalogEntry(state.store, brand);
+  state.wizard.brand = brand;
+  state.wizard.model = "";
+  $("newBrandInput").value = "";
+  saveStore();
+  renderWizardStep1();
+}
+
+function addModel() {
+  const model = Core.cleanText($("newModelInput").value, 80);
+  if (!model || !state.wizard.brand) return;
+  const data = ensureCatalogEntry(state.store, state.wizard.brand, model, paletteForIndex(catalogModelCount(state.store)));
+  state.wizard.model = model;
+  state.wizard.color = data.color;
+  $("newModelInput").value = "";
+  saveStore();
+  renderWizardStep1();
+}
+
+function changeProductColor() {
+  if (!state.wizard.brand || !state.wizard.model) return;
+  const color = Core.normalizeHexColor($("productColor").value);
+  state.wizard.color = color;
+  ensureCatalogEntry(state.store, state.wizard.brand, state.wizard.model).color = color;
+  saveStore();
+  renderWizardStep1();
+}
+
+function sameAsLast() {
+  if (!state.store.lastGrinder) return;
+  state.wizard = {
+    ...freshWizard(),
+    ...state.store.lastGrinder,
+    weightsGrams: Core.normalizeWeights({})
+  };
+  goWizardStep(2);
+}
+
+function goWizardStep(step) {
+  if (step === 2 && !(state.wizard.brand && state.wizard.model)) {
+    toast("请先选择品牌和型号。", "error");
     return;
   }
-  dom["record-brand"].value = last.brand || "";
-  dom["record-model"].value = last.model || "";
-  dom["record-setting"].value = last.setting || "";
+
+  if (step === 3 && !readWizardStep2()) return;
+
+  [1, 2, 3].forEach((number) => {
+    $(`wizardStep${number}`).hidden = number !== step;
+  });
+
+  if (step === 1) renderWizardStep1();
+  if (step === 2) renderWizardStep2();
+  if (step === 3) {
+    renderWizardStep3();
+    setTimeout(() => document.querySelector("#weighRows input")?.focus(), 40);
+  }
 }
 
-function refreshDatalists() {
-  const brands = unique(state.store.records.map((record) => record.grinder.brand).filter(Boolean));
-  const models = unique(state.store.records.map((record) => record.grinder.model).filter(Boolean));
-  dom["brand-list"].innerHTML = brands.map((brand) => `<option value="${escapeHtml(brand)}"></option>`).join("");
-  dom["model-list"].innerHTML = models.map((model) => `<option value="${escapeHtml(model)}"></option>`).join("");
+function renderWizardStep2() {
+  $("step2GrinderLabel").textContent = `${state.wizard.brand} ${state.wizard.model}`;
+  $("dialInput").value = state.wizard.setting || "";
+  $("dialOrderInput").value = state.wizard.settingOrder ?? "";
+  $("doseInput").value = formatPlainNumber(state.wizard.doseG, 2);
+  $("beanInput").value = state.wizard.bean || "";
+  $("roastInput").value = state.wizard.roastLevel || "";
+  $("durationInput").value = state.wizard.durationSec || 60;
+  $("deviceInput").value = state.wizard.sieveDevice || "Grind-PSD 五段筛具";
+  $("methodInput").value = state.wizard.method || "手动水平往复筛分";
+  $("replicateInput").value = state.wizard.replicate || 1;
+  $("notesInput").value = state.wizard.notes || "";
+
+  const dials = unique(state.store.records
+    .filter((record) => record.grinder.brand === state.wizard.brand && record.grinder.model === state.wizard.model)
+    .map((record) => record.grinder.setting));
+  $("dialHistory").innerHTML = dials.length
+    ? `已有刻度：<span class="tag-history">${dials.slice(0, 12).map((dial) => `<button type="button" data-dial="${escapeHtml(dial)}">${escapeHtml(dial)}</button>`).join("")}</span>`
+    : "还没有该型号的历史刻度。";
+  $("dialHistory").querySelectorAll("[data-dial]").forEach((button) => {
+    button.addEventListener("click", () => {
+      $("dialInput").value = button.dataset.dial;
+      const order = Core.deriveSettingOrder(button.dataset.dial);
+      if (order !== null) $("dialOrderInput").value = order;
+    });
+  });
+  setTimeout(() => $("dialInput").focus(), 40);
 }
 
-function updateWeightTotal() {
-  const weights = readWeightInputs();
-  const total = sum(Object.values(weights));
-  dom["weight-total"].textContent = `${formatNumber(total, 2)} g`;
+function readWizardStep2() {
+  const setting = Core.cleanText($("dialInput").value, 80);
+  const doseG = Core.toNumber($("doseInput").value);
+  if (!setting) {
+    toast("请填写研磨刻度。", "error");
+    $("dialInput").focus();
+    return false;
+  }
+  if (doseG <= 0) {
+    toast("请填写大于 0 的投粉量。", "error");
+    $("doseInput").focus();
+    return false;
+  }
+  const orderText = $("dialOrderInput").value.trim();
+  state.wizard.setting = setting;
+  state.wizard.settingOrder = orderText === "" ? Core.deriveSettingOrder(setting) : Number(orderText);
+  state.wizard.doseG = doseG;
+  state.wizard.bean = Core.cleanText($("beanInput").value, 120);
+  state.wizard.roastLevel = Core.cleanText($("roastInput").value, 40);
+  state.wizard.durationSec = Core.toNumber($("durationInput").value);
+  state.wizard.sieveDevice = Core.cleanText($("deviceInput").value, 80);
+  state.wizard.method = Core.cleanText($("methodInput").value, 120);
+  state.wizard.replicate = Math.max(1, Math.trunc(Core.toNumber($("replicateInput").value) || 1));
+  state.wizard.notes = Core.cleanText($("notesInput").value, 500);
+  return true;
+}
+
+function buildWeighRows() {
+  $("weighRows").innerHTML = Core.SIEVES.map((sieve) => `
+    <label class="weighing-row">
+      <span class="weighing-name">
+        <strong>${escapeHtml(sieve.label)}</strong>
+        <span>${escapeHtml(sieve.range)} · ${escapeHtml(sieve.description)}</span>
+      </span>
+      <input type="number" min="0" max="200" step="0.01" inputmode="decimal" placeholder="0.00" data-weight="${escapeHtml(sieve.key)}" aria-label="${escapeHtml(sieve.label)}重量">
+    </label>
+  `).join("");
+  document.querySelectorAll("#weighRows input").forEach((input) => {
+    input.addEventListener("input", updateWeightSummary);
+  });
+}
+
+function renderWizardStep3() {
+  $("step3GrinderLabel").textContent = `${state.wizard.brand} ${state.wizard.model} · 刻度 ${state.wizard.setting}`;
+  document.querySelectorAll("#weighRows input").forEach((input) => {
+    const value = state.wizard.weightsGrams[input.dataset.weight];
+    input.value = value ? formatPlainNumber(value, 2) : "";
+  });
+  updateWeightSummary();
 }
 
 function readWeightInputs() {
   const weights = {};
-  dom["weight-inputs"].querySelectorAll("input").forEach((input) => {
-    weights[input.dataset.bin] = toNumber(input.value);
+  document.querySelectorAll("#weighRows input").forEach((input) => {
+    weights[input.dataset.weight] = Core.toNumber(input.value);
   });
-  return weights;
+  return Core.normalizeWeights(weights);
 }
 
-function saveRecordFromDialog(event) {
-  event.preventDefault();
-  const userId = normalizeUserId(dom["record-user-id"].value);
-  const userName = dom["record-user-name"].value.trim() || userId;
-  const brand = dom["record-brand"].value.trim();
-  const model = dom["record-model"].value.trim();
-  const setting = dom["record-setting"].value.trim();
-  const weightsGrams = readWeightInputs();
-  const totalG = round(sum(Object.values(weightsGrams)), 2);
-  const doseG = toNumber(dom["record-dose"].value);
+function updateWeightSummary() {
+  const weights = readWeightInputs();
+  const total = Core.round(Core.sum(Object.values(weights)), 2);
+  const dose = Core.toNumber($("doseInput").value || state.wizard.doseG);
+  const quality = Core.calculateQuality(dose, total, {
+    durationSec: Core.toNumber($("durationInput").value || state.wizard.durationSec),
+    sieveDevice: $("deviceInput").value || state.wizard.sieveDevice
+  });
+  $("weightTotal").textContent = `${formatNumber(total, 2)} g`;
+  $("recoveryTotal").textContent = quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`;
+  $("qualityPreview").textContent = `${quality.grade} · ${quality.gradeLabel}`;
+  $("qualityPreview").style.color = gradeColor(quality.grade);
 
-  if (!userId) {
-    toast("用户 ID 不能为空，只能使用字母、数字、下划线和连字符。", true);
-    return;
+  const validation = $("weightValidation");
+  validation.className = "validation-message";
+  if (total <= 0) {
+    validation.textContent = "请至少填写一个大于 0 的筛层重量。";
+  } else if (quality.grade === "D") {
+    validation.classList.add("error");
+    validation.textContent = "质量回收误差超过 10%。可以本地保存，但不能提交公开数据库，建议检查静电、漏粉或录入。";
+  } else if (quality.grade === "C") {
+    validation.classList.add("warn");
+    validation.textContent = "质量等级 C：允许本地保存和公开提交，但只适合谨慎比较。";
+  } else {
+    validation.textContent = `质量回收误差 ${formatNumber(quality.massBalanceErrorPct, 2)}%，满足 ${quality.grade} 级。`;
   }
-  if (!brand || !model || !setting) {
-    toast("品牌、型号和研磨刻度必须填写。", true);
+}
+
+function saveWizardRecord() {
+  state.wizard.weightsGrams = readWeightInputs();
+  const total = Core.round(Core.sum(Object.values(state.wizard.weightsGrams)), 2);
+  if (total <= 0) {
+    toast("请至少填写一个筛层的重量。", "error");
     return;
-  }
-  if (totalG <= 0) {
-    toast("筛层重量合计必须大于 0。", true);
-    return;
-  }
-  if (doseG > 0 && Math.abs(doseG - totalG) / doseG > 0.08) {
-    const proceed = window.confirm("筛分总重与投粉量偏差超过 8%。这通常意味着损耗、静电或称量录入问题。仍然保存吗？");
-    if (!proceed) return;
   }
 
-  state.store.user = { id: userId, name: userName };
-  const record = makeRecord({
-    userId,
-    userName,
-    brand,
-    model,
-    setting,
-    doseG,
-    bean: dom["record-bean"].value.trim(),
-    method: dom["record-method"].value.trim(),
-    notes: dom["record-notes"].value.trim(),
-    weightsGrams,
+  const record = Core.createRecord({
+    user: state.store.user,
+    grinder: {
+      brand: state.wizard.brand,
+      model: state.wizard.model,
+      setting: state.wizard.setting,
+      settingOrder: state.wizard.settingOrder,
+      color: state.wizard.color
+    },
+    sample: {
+      doseG: state.wizard.doseG,
+      bean: state.wizard.bean,
+      roastLevel: state.wizard.roastLevel,
+      method: state.wizard.method,
+      durationSec: state.wizard.durationSec,
+      sieveDevice: state.wizard.sieveDevice,
+      replicate: state.wizard.replicate
+    },
+    weightsGrams: state.wizard.weightsGrams,
+    notes: state.wizard.notes,
     source: "local"
   });
 
-  state.store.records.unshift(record);
-  state.store.lastGrinder = { brand, model, setting };
+  const catalog = ensureCatalogEntry(state.store, record.grinder.brand, record.grinder.model, record.grinder.color);
+  catalog.color = record.grinder.color;
+  state.store.records = dedupeRecords([record, ...state.store.records]);
+  state.store.lastGrinder = {
+    brand: record.grinder.brand,
+    model: record.grinder.model,
+    color: record.grinder.color,
+    setting: record.grinder.setting,
+    settingOrder: record.grinder.settingOrder,
+    doseG: record.sample.doseG,
+    bean: record.sample.bean,
+    roastLevel: record.sample.roastLevel,
+    durationSec: record.sample.durationSec,
+    sieveDevice: record.sample.sieveDevice,
+    method: record.sample.method,
+    replicate: record.sample.replicate,
+    notes: ""
+  };
   state.selectedRecordId = record.id;
+  state.selectedRecordSource = "local";
   saveStore();
-  dom["record-dialog"].close();
+  hideModal("wizard");
   renderAll();
-  switchTab("dashboard");
-  toast("记录已保存。");
+  switchTab("current");
+  toast("记录已保存并生成图表。", "success");
 }
 
-function makeRecord(input) {
-  const totalG = round(sum(Object.values(input.weightsGrams)), 2);
-  const percentages = {};
-  SIEVE_BINS.forEach((bin) => {
-    percentages[bin.id.replace("_g", "_pct")] = totalG ? round((input.weightsGrams[bin.id] || 0) / totalG * 100, 2) : 0;
-  });
-  const metrics = calculateMetrics(input.weightsGrams, totalG);
-  const now = new Date().toISOString();
-  const recordBase = {
-    schemaVersion: "2.0.0",
-    standardId: STANDARD_ID,
-    id: "",
-    user: {
-      id: input.userId,
-      name: input.userName
-    },
-    grinder: {
-      brand: input.brand,
-      model: input.model,
-      setting: input.setting
-    },
-    sample: {
-      doseG: round(input.doseG || totalG, 2),
-      bean: input.bean || "",
-      method: input.method || "手动摇筛 60 秒"
-    },
-    weightsGrams: normalizeWeights(input.weightsGrams),
-    totalG,
-    percentages,
-    metrics,
-    notes: input.notes || "",
-    createdAt: now,
-    updatedAt: now,
-    source: input.source || "local"
-  };
-  recordBase.id = buildRecordId(recordBase);
-  return recordBase;
-}
-
-function buildRecordId(record) {
-  const stable = [
-    record.standardId,
-    record.user.id,
-    record.grinder.brand,
-    record.grinder.model,
-    record.grinder.setting,
-    record.createdAt,
-    JSON.stringify(record.weightsGrams)
-  ].join("|");
-  return `gpsd-${hashString(stable)}`;
-}
-
-function normalizeWeights(weights) {
-  const normalized = {};
-  SIEVE_BINS.forEach((bin) => {
-    normalized[bin.id] = round(toNumber(weights[bin.id]), 2);
-  });
-  return normalized;
-}
-
-function calculateMetrics(weights, totalG) {
-  if (!totalG) {
-    return {
-      coarsePct: 0,
-      finesPct: 0,
-      d10UmApprox: null,
-      d50UmApprox: null,
-      d90UmApprox: null,
-      spanApprox: null,
-      modeBin: ""
-    };
-  }
-
-  const coarsePct = round((weights.mesh18_retained_g || 0) / totalG * 100, 2);
-  const finesPct = round((weights.pan80_lt300_g || 0) / totalG * 100, 2);
-  const d10 = percentileSize(weights, totalG, 10);
-  const d50 = percentileSize(weights, totalG, 50);
-  const d90 = percentileSize(weights, totalG, 90);
-  const span = d50 ? round((d90 - d10) / d50, 2) : null;
-  const mode = SIEVE_BINS.reduce((best, bin) => {
-    const value = weights[bin.id] || 0;
-    return value > best.value ? { id: bin.id, label: bin.label, value } : best;
-  }, { id: "", label: "", value: -1 });
-
-  return {
-    coarsePct,
-    finesPct,
-    d10UmApprox: d10,
-    d50UmApprox: d50,
-    d90UmApprox: d90,
-    spanApprox: span,
-    modeBin: mode.label
-  };
-}
-
-function percentileSize(weights, totalG, percentile) {
-  const fineToCoarse = [...SIEVE_BINS].reverse();
-  let cumulative = 0;
-  const target = percentile / 100 * totalG;
-  for (const bin of fineToCoarse) {
-    const w = weights[bin.id] || 0;
-    const previous = cumulative;
-    cumulative += w;
-    if (target <= cumulative || bin === fineToCoarse[fineToCoarse.length - 1]) {
-      if (w <= 0) return Math.round((bin.lowerUm + bin.upperUm) / 2);
-      const ratio = Math.max(0, Math.min(1, (target - previous) / w));
-      const size = bin.lowerUm + (bin.upperUm - bin.lowerUm) * ratio;
-      return Math.round(size);
-    }
-  }
-  return null;
-}
-
-function selectInitialRecord() {
-  if (!state.selectedRecordId && state.store.records.length) {
-    state.selectedRecordId = state.store.records[0].id;
+function selectNewestRecord() {
+  if (state.selectedRecordId) return;
+  const newest = state.store.records[0];
+  if (newest) {
+    state.selectedRecordId = newest.id;
+    state.selectedRecordSource = "local";
   }
 }
 
-function renderAll() {
-  renderDashboard();
-  renderFilters();
-  renderLocalTable();
-  renderCommunityTable();
-  renderCompareOptions();
-  renderCompare();
+function getSelectedRecord() {
+  if (!state.selectedRecordId) return null;
+  if (state.selectedRecordSource === "community") {
+    return state.communityRecords.find((record) => record.id === state.selectedRecordId) || null;
+  }
+  return state.store.records.find((record) => record.id === state.selectedRecordId)
+    || state.communityRecords.find((record) => record.id === state.selectedRecordId)
+    || null;
 }
 
-function renderDashboard() {
+function renderCurrent() {
   const record = getSelectedRecord();
+  const container = $("currentContent");
   if (!record) {
-    dom["record-summary"].className = "empty";
-    dom["record-summary"].textContent = "暂无记录。点击右上角“新建记录”开始录入。";
-    dom["metric-grid"].innerHTML = "";
-    clearCanvas(dom["distribution-chart"], "暂无图表数据");
+    container.innerHTML = `
+      <div class="panel">
+        <div class="empty-state">
+          <div class="empty-icon">◌</div>
+          <strong>暂无称重记录</strong>
+          <span>点击“＋ 新建称重记录”，按原版三步流程开始。</span>
+        </div>
+      </div>`;
     return;
   }
 
-  dom["record-summary"].className = "";
-  dom["record-summary"].innerHTML = `
-    <div class="record-meta">
-      <span class="badge"><span class="dot"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</span>
-      <span class="badge">刻度 ${escapeHtml(record.grinder.setting)}</span>
-      <span class="badge">用户 ${escapeHtml(record.user.id)}</span>
-      <span class="badge">总重 ${formatNumber(record.totalG, 2)} g</span>
+  const quality = record.metrics.quality;
+  const color = Core.normalizeHexColor(record.grinder.color);
+  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地记录";
+  const rows = Core.SIEVES.map((sieve) => {
+    const weight = record.weightsGrams[sieve.key] || 0;
+    const pct = record.totalG ? weight / record.totalG * 100 : 0;
+    return `
+      <tr>
+        <td><strong>${escapeHtml(sieve.label)}</strong></td>
+        <td>${escapeHtml(sieve.range)}</td>
+        <td class="num">${formatNumber(weight, 2)}</td>
+        <td class="num">${formatNumber(pct, 2)}%</td>
+        <td class="bar-cell"><div class="mini-bar" style="width:${Math.max(1.5, Math.min(100, pct))}%;background:${color}"></div></td>
+      </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="panel">
+      <div class="record-header">
+        <div>
+          <div class="record-title">
+            <h2>汇总表</h2>
+            ${qualityChip(quality)}
+          </div>
+          <div class="record-meta">
+            <span class="badge"><span class="dot" style="background:${color}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</span>
+            <span class="badge">刻度 ${escapeHtml(record.grinder.setting)}</span>
+            <span class="badge">用户 ${escapeHtml(record.user.id)}</span>
+            <span class="badge">${escapeHtml(sourceLabel)}</span>
+            <span class="badge">${escapeHtml(formatDateTime(record.createdAt))}</span>
+          </div>
+        </div>
+        <div class="panel-actions">
+          ${state.selectedRecordSource === "community"
+            ? '<button class="primary small" type="button" data-current-action="import">导入本地</button>'
+            : '<button class="primary small" type="button" data-current-action="submit">提交到社区库</button>'}
+          <button class="ghost small" type="button" data-current-action="export">导出本条 JSON</button>
+          <button class="ghost small" type="button" data-current-action="print">打印</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>筛分档</th><th>标称粒径区间</th><th class="num">重量 g</th><th class="num">占比</th><th>分布</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="metrics-grid">
+        ${metricCard("投粉量", `${formatNumber(record.sample.doseG, 2)} g`)}
+        ${metricCard("五档回收", `${formatNumber(record.totalG, 2)} g`)}
+        ${metricCard("质量回收率", quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`)}
+        ${metricCard("≥1000 μm", `${formatNumber(record.metrics.coarsePct, 2)}%`)}
+        ${metricCard("500–1000 μm", `${formatNumber(record.metrics.bodyPct, 2)}%`)}
+        ${metricCard("<300 μm", `${formatNumber(record.metrics.finesPct, 2)}%`)}
+      </div>
+      <p class="note">
+        方法：${escapeHtml(record.sample.method || "未记录")} ·
+        时长：${record.sample.durationSec ? `${formatNumber(record.sample.durationSec, 0)} s` : "未记录"} ·
+        筛具：${escapeHtml(record.sample.sieveDevice || "未记录")} ·
+        重复：#${formatNumber(record.sample.replicate || 1, 0)}
+        ${record.sample.bean ? ` · 样品：${escapeHtml(record.sample.bean)}` : ""}
+        ${record.sample.roastLevel ? ` · 烘焙：${escapeHtml(record.sample.roastLevel)}` : ""}
+      </p>
+      ${record.notes ? `<p class="note">备注：${escapeHtml(record.notes)}</p>` : ""}
     </div>
+    <div class="panel">
+      <div class="chart-toolbar">
+        <h2>粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span></h2>
+        <select id="currentChartUnit" aria-label="当前图表单位">
+          <option value="g">重量 g</option>
+          <option value="pct">占比 %</option>
+        </select>
+      </div>
+      <div class="canvas-scroll"><canvas id="canvasBar" height="380"></canvas></div>
+    </div>`;
+
+  container.querySelectorAll("[data-current-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.currentAction;
+      if (action === "submit") openSubmitModal();
+      if (action === "export") exportSingleRecord(record);
+      if (action === "print") window.print();
+      if (action === "import") importCommunityRecord(record.id);
+    });
+  });
+  $("currentChartUnit").addEventListener("change", renderCurrentChart);
+  renderCurrentChart();
+}
+
+function metricCard(label, value) {
+  return `<div class="metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function qualityChip(quality) {
+  const grade = quality?.grade || "U";
+  const label = quality?.gradeLabel || "未评级";
+  return `<span class="quality-chip"><span class="grade grade-${grade.toLowerCase()}">${escapeHtml(grade)}</span>${escapeHtml(label)}</span>`;
+}
+
+function renderCurrentChart() {
+  const canvas = $("canvasBar");
+  const record = getSelectedRecord();
+  if (!canvas || !record) return;
+  drawBarChart(canvas, record, $("currentChartUnit")?.value || "g");
+}
+
+function refreshHistoryFilters() {
+  const current = $("historyGrinderFilter").value;
+  const groups = unique(state.store.records.map((record) => grinderFilterKey(record.grinder.brand, record.grinder.model)));
+  $("historyGrinderFilter").innerHTML = '<option value="">全部磨豆机</option>' + groups.map((key) => {
+    const [brand, model] = key.split("::").map((part) => decodeURIComponent(part));
+    return `<option value="${escapeHtml(key)}">${escapeHtml(brand)} ${escapeHtml(model)}</option>`;
+  }).join("");
+  if (groups.includes(current)) $("historyGrinderFilter").value = current;
+}
+
+function getFilteredHistoryRecords() {
+  const query = $("historySearch").value.trim().toLowerCase();
+  const grinder = $("historyGrinderFilter").value;
+  const grade = $("historyGradeFilter").value;
+  return state.store.records.filter((record) => {
+    if (grinder && grinderFilterKey(record.grinder.brand, record.grinder.model) !== grinder) return false;
+    if (grade && record.metrics.quality.grade !== grade) return false;
+    if (!query) return true;
+    return searchableRecordText(record).includes(query);
+  });
+}
+
+function grinderFilterKey(brand, model) {
+  return [brand, model].map((part) => encodeURIComponent(String(part || ""))).join("::");
+}
+
+function renderHistory() {
+  const container = $("historyContent");
+  const records = getFilteredHistoryRecords();
+  if (!records.length) {
+    container.innerHTML = '<div class="empty">没有符合条件的本地记录。</div>';
+    return;
+  }
+  container.innerHTML = recordTable(records, { community: false });
+  bindRecordTableActions(container, false);
+}
+
+function recordTable(records, options = {}) {
+  return `
     <table>
       <thead>
         <tr>
-          <th>筛层</th>
-          <th>区间</th>
-          <th class="num">重量 g</th>
-          <th class="num">占比</th>
+          ${options.community ? '<th class="select-cell"><input type="checkbox" data-select-all aria-label="全选筛选结果"></th>' : ""}
+          <th>用户</th><th>磨豆机</th><th>刻度</th><th class="num">回收总重</th>
+          <th class="num">极细粉</th><th>等级</th><th>样品</th><th>时间</th><th></th>
         </tr>
       </thead>
       <tbody>
-        ${SIEVE_BINS.map((bin) => `
+        ${records.map((record) => `
           <tr>
-            <td>${escapeHtml(bin.label)}</td>
-            <td>${escapeHtml(bin.range)}</td>
-            <td class="num">${formatNumber(record.weightsGrams[bin.id], 2)}</td>
-            <td class="num">${formatNumber(percentFor(record, bin.id), 2)}%</td>
-          </tr>
-        `).join("")}
+            ${options.community ? `<td class="select-cell"><input type="checkbox" data-community-select="${escapeHtml(record.id)}" ${state.selectedCommunityIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
+            <td>${escapeHtml(record.user.id)}</td>
+            <td><span class="dot" style="background:${Core.normalizeHexColor(record.grinder.color)}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
+            <td>${escapeHtml(record.grinder.setting)}</td>
+            <td class="num">${formatNumber(record.totalG, 2)} g</td>
+            <td class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
+            <td>${qualityChip(record.metrics.quality)}</td>
+            <td class="wrap-cell">${record.sample.bean ? `<span class="truncate">${escapeHtml(record.sample.bean)}</span>` : "—"}</td>
+            <td>${escapeHtml(formatDate(record.createdAt))}</td>
+            <td>
+              <div class="row-actions">
+                <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
+                ${options.community
+                  ? `<button type="button" data-import-record="${escapeHtml(record.id)}">导入</button><button type="button" data-user-download="${escapeHtml(record.user.id)}">用户库</button>`
+                  : `<button type="button" data-clone-record="${escapeHtml(record.id)}">复测</button><button type="button" data-delete-record="${escapeHtml(record.id)}">删除</button>`}
+              </div>
+            </td>
+          </tr>`).join("")}
       </tbody>
-    </table>
-    ${record.notes ? `<p class="note">${escapeHtml(record.notes)}</p>` : ""}
-  `;
-  renderMetrics(record);
-  renderDashboardChart();
+    </table>`;
 }
 
-function renderMetrics(record) {
-  const metrics = [
-    ["粗粉", `${formatNumber(record.metrics.coarsePct, 2)}%`],
-    ["极细粉", `${formatNumber(record.metrics.finesPct, 2)}%`],
-    ["D50 近似", nullableMetric(record.metrics.d50UmApprox, "μm")],
-    ["跨度", nullableMetric(record.metrics.spanApprox, "")]
-  ];
-  dom["metric-grid"].innerHTML = metrics.map(([label, value]) => `
-    <div class="metric">
-      <span>${label}</span>
-      <strong>${value}</strong>
-    </div>
-  `).join("") + `
-    <div class="metric">
-      <span>D10 / D90 近似</span>
-      <strong>${nullableMetric(record.metrics.d10UmApprox, "μm")} / ${nullableMetric(record.metrics.d90UmApprox, "μm")}</strong>
-    </div>
-    <div class="metric">
-      <span>主峰筛层</span>
-      <strong>${escapeHtml(record.metrics.modeBin || "-")}</strong>
-    </div>
-  `;
-}
-
-function renderDashboardChart() {
-  const record = getSelectedRecord();
-  if (!record) return;
-  drawDistributionChart(dom["distribution-chart"], [record], dom["chart-unit"].value);
-}
-
-function renderFilters() {
-  fillUserFilter(dom["local-user-filter"], state.store.records, "全部本地用户");
-  fillUserFilter(dom["community-user-filter"], state.communityRecords, "全部社区用户");
-}
-
-function fillUserFilter(select, records, label) {
-  const current = select.value;
-  const users = unique(records.map((record) => record.user.id).filter(Boolean)).sort();
-  select.innerHTML = `<option value="">${escapeHtml(label)}</option>` + users.map((user) => `<option value="${escapeHtml(user)}">${escapeHtml(user)}</option>`).join("");
-  if (users.includes(current)) select.value = current;
-}
-
-function renderLocalTable() {
-  renderRecordTable({
-    container: dom["local-table"],
-    records: filterRecords(state.store.records, dom["local-search"].value, dom["local-user-filter"].value),
-    source: "local"
-  });
-}
-
-function renderCommunityTable() {
-  renderRecordTable({
-    container: dom["community-table"],
-    records: filterRecords(state.communityRecords, dom["community-search"].value, dom["community-user-filter"].value),
-    source: "community"
-  });
-}
-
-function renderRecordTable({ container, records, source }) {
-  if (!records.length) {
-    container.innerHTML = `<div class="empty">${source === "community" ? "暂无社区记录，或尚未同步。" : "暂无本地记录。"}</div>`;
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            ${source === "community" ? '<th class="select-cell">选择</th>' : ""}
-            <th>用户</th>
-            <th>磨豆机</th>
-            <th>刻度</th>
-            <th class="num">总重</th>
-            <th class="num">极细粉</th>
-            <th class="num">D50</th>
-            <th>时间</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${records.map((record) => `
-            <tr>
-              ${source === "community" ? `
-                <td><input type="checkbox" data-community-id="${escapeHtml(record.id)}" ${state.selectedCommunityIds.has(record.id) ? "checked" : ""}></td>
-              ` : ""}
-              <td>${escapeHtml(record.user.id)}</td>
-              <td>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
-              <td>${escapeHtml(record.grinder.setting)}</td>
-              <td class="num">${formatNumber(record.totalG, 2)} g</td>
-              <td class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
-              <td class="num">${nullableMetric(record.metrics.d50UmApprox, "μm")}</td>
-              <td>${formatDate(record.createdAt)}</td>
-              <td>
-                <div class="row-actions">
-                  <button data-view-id="${escapeHtml(record.id)}" data-source="${source}">查看</button>
-                  ${source === "local" ? `<button data-delete-id="${escapeHtml(record.id)}">删除</button>` : `<button data-import-id="${escapeHtml(record.id)}">导入</button>`}
-                </div>
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  container.querySelectorAll("[data-view-id]").forEach((button) => {
+function bindRecordTableActions(container, community) {
+  container.querySelectorAll("[data-view-record]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = findRecord(button.dataset.viewId, button.dataset.source);
-      if (!record) return;
-      if (button.dataset.source === "community") {
-        const localCopy = cloneRecord(record, "community-preview");
-        state.store.records = upsertRecord(state.store.records, localCopy);
-        saveStore();
-        state.selectedRecordId = localCopy.id;
-      } else {
-        state.selectedRecordId = record.id;
-      }
-      renderAll();
-      switchTab("dashboard");
+      state.selectedRecordId = button.dataset.viewRecord;
+      state.selectedRecordSource = community ? "community" : "local";
+      renderCurrent();
+      switchTab("current");
     });
   });
-
-  container.querySelectorAll("[data-delete-id]").forEach((button) => {
-    button.addEventListener("click", () => deleteLocalRecord(button.dataset.deleteId));
+  container.querySelectorAll("[data-delete-record]").forEach((button) => {
+    button.addEventListener("click", () => deleteLocalRecord(button.dataset.deleteRecord));
   });
-
-  container.querySelectorAll("[data-import-id]").forEach((button) => {
-    button.addEventListener("click", () => importCommunityRecord(button.dataset.importId));
+  container.querySelectorAll("[data-clone-record]").forEach((button) => {
+    button.addEventListener("click", () => cloneAsRetest(button.dataset.cloneRecord));
   });
-
-  container.querySelectorAll("[data-community-id]").forEach((checkbox) => {
+  container.querySelectorAll("[data-import-record]").forEach((button) => {
+    button.addEventListener("click", () => importCommunityRecord(button.dataset.importRecord));
+  });
+  container.querySelectorAll("[data-user-download]").forEach((button) => {
+    button.addEventListener("click", () => downloadUserLibrary(button.dataset.userDownload));
+  });
+  container.querySelectorAll("[data-community-select]").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked) state.selectedCommunityIds.add(checkbox.dataset.communityId);
-      else state.selectedCommunityIds.delete(checkbox.dataset.communityId);
+      if (checkbox.checked) state.selectedCommunityIds.add(checkbox.dataset.communitySelect);
+      else state.selectedCommunityIds.delete(checkbox.dataset.communitySelect);
     });
   });
-}
-
-function filterRecords(records, query, userId) {
-  const q = (query || "").trim().toLowerCase();
-  return records.filter((record) => {
-    if (userId && record.user.id !== userId) return false;
-    if (!q) return true;
-    const haystack = [
-      record.user.id,
-      record.user.name,
-      record.grinder.brand,
-      record.grinder.model,
-      record.grinder.setting,
-      record.sample.bean,
-      record.notes
-    ].join(" ").toLowerCase();
-    return haystack.includes(q);
-  });
+  const selectAll = container.querySelector("[data-select-all]");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      getFilteredCommunityRecords().forEach((record) => {
+        if (selectAll.checked) state.selectedCommunityIds.add(record.id);
+        else state.selectedCommunityIds.delete(record.id);
+      });
+      renderCommunity();
+    });
+  }
 }
 
 function deleteLocalRecord(id) {
   const record = state.store.records.find((item) => item.id === id);
   if (!record) return;
-  const ok = window.confirm(`删除 ${record.grinder.brand} ${record.grinder.model} 刻度 ${record.grinder.setting}？`);
-  if (!ok) return;
+  if (!window.confirm(`删除 ${record.grinder.brand} ${record.grinder.model} · 刻度 ${record.grinder.setting}？`)) return;
   state.store.records = state.store.records.filter((item) => item.id !== id);
-  if (state.selectedRecordId === id) state.selectedRecordId = state.store.records[0]?.id || null;
+  if (state.selectedRecordId === id) {
+    state.selectedRecordId = state.store.records[0]?.id || null;
+    state.selectedRecordSource = "local";
+  }
   saveStore();
   renderAll();
-  toast("记录已删除。");
+  toast("本地记录已删除。", "success");
 }
 
-function renderCompareOptions() {
-  const records = getAllComparableRecords();
-  const options = records.map((record) => `
-    <option value="${escapeHtml(record.id)}">${escapeHtml(record.user.id)} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · ${escapeHtml(record.grinder.setting)}</option>
-  `).join("");
-  const oldA = dom["compare-a"].value;
-  const oldB = dom["compare-b"].value;
-  dom["compare-a"].innerHTML = options;
-  dom["compare-b"].innerHTML = options;
-  if (records.some((record) => record.id === oldA)) dom["compare-a"].value = oldA;
-  if (records.some((record) => record.id === oldB)) dom["compare-b"].value = oldB;
-  if (!dom["compare-a"].value && records[0]) dom["compare-a"].value = records[0].id;
-  if (!dom["compare-b"].value && records[1]) dom["compare-b"].value = records[1].id;
+function clearLocalRecords() {
+  if (!state.store.records.length) return;
+  if (!window.confirm(`确定清空 ${state.store.records.length} 条本地记录？此操作不会删除已公开提交的数据。建议先导出备份。`)) return;
+  state.store.records = [];
+  state.selectedRecordId = null;
+  state.selectedRecordSource = "local";
+  saveStore();
+  renderAll();
+  toast("本地记录已清空。", "success");
+}
+
+function cloneAsRetest(id) {
+  const record = state.store.records.find((item) => item.id === id);
+  if (!record) return;
+  state.wizard = {
+    ...freshWizard(),
+    brand: record.grinder.brand,
+    model: record.grinder.model,
+    color: record.grinder.color,
+    setting: record.grinder.setting,
+    settingOrder: record.grinder.settingOrder,
+    doseG: record.sample.doseG,
+    bean: record.sample.bean,
+    roastLevel: record.sample.roastLevel,
+    durationSec: record.sample.durationSec,
+    sieveDevice: record.sample.sieveDevice,
+    method: record.sample.method,
+    replicate: (record.sample.replicate || 1) + 1,
+    notes: "",
+    weightsGrams: Core.normalizeWeights({})
+  };
+  $("wizardUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
+  $("sameAsLastBtn").hidden = !state.store.lastGrinder;
+  clearWizardFields();
+  showModal("wizard");
+  goWizardStep(2);
+}
+
+function getRecordsForScope(scope) {
+  if (scope === "local") return [...state.store.records];
+  if (scope === "community") return [...state.communityRecords];
+  return getAllRecords();
+}
+
+function getAllRecords() {
+  const map = new Map();
+  state.communityRecords.forEach((record) => map.set(record.id, record));
+  state.store.records.forEach((record) => map.set(record.id, record));
+  return [...map.values()];
+}
+
+function groupRecords(records) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const key = Core.recordGroupKey(record);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        userId: record.user.id,
+        brand: record.grinder.brand,
+        model: record.grinder.model,
+        color: Core.normalizeHexColor(record.grinder.color),
+        records: []
+      });
+    }
+    groups.get(key).records.push(record);
+  });
+  return [...groups.values()].sort((a, b) => {
+    return `${a.brand} ${a.model} ${a.userId}`.localeCompare(`${b.brand} ${b.model} ${b.userId}`, "zh-CN", { numeric: true });
+  });
+}
+
+function latestBySetting(records) {
+  const map = new Map();
+  [...records].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach((record) => {
+    map.set(record.grinder.setting, record);
+  });
+  return [...map.values()].sort(Core.compareSettings);
+}
+
+function refresh3dGrinderOptions() {
+  const select = $("sel3dGrinder");
+  const current = select.value;
+  const groups = groupRecords(getRecordsForScope($("sel3dScope").value));
+  select.innerHTML = groups.length
+    ? groups.map((group) => `<option value="${escapeHtml(group.key)}">${escapeHtml(group.userId)} · ${escapeHtml(group.brand)} ${escapeHtml(group.model)} (${latestBySetting(group.records).length} 刻度)</option>`).join("")
+    : '<option value="">暂无可用记录</option>';
+  if (groups.some((group) => group.key === current)) select.value = current;
+}
+
+function render3D() {
+  const groups = groupRecords(getRecordsForScope($("sel3dScope").value));
+  const group = groups.find((item) => item.key === $("sel3dGrinder").value) || groups[0] || null;
+  drawArray3D($("canvas3d"), group, $("sel3dUnit").value, $("note3d"));
+}
+
+function refreshCompareOptions() {
+  const records = getAllRecords().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const oldA = $("cmpRecordA").value;
+  const oldB = $("cmpRecordB").value;
+  const options = records.map((record) => {
+    const source = state.store.records.some((item) => item.id === record.id) ? "本地" : "社区";
+    return `<option value="${escapeHtml(record.id)}">[${source}] ${escapeHtml(record.user.id)} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · ${escapeHtml(record.grinder.setting)}</option>`;
+  }).join("");
+  $("cmpRecordA").innerHTML = options || '<option value="">暂无记录</option>';
+  $("cmpRecordB").innerHTML = options || '<option value="">暂无记录</option>';
+  if (records.some((record) => record.id === oldA)) $("cmpRecordA").value = oldA;
+  if (records.some((record) => record.id === oldB)) $("cmpRecordB").value = oldB;
+  if (!$("cmpRecordA").value && records[0]) $("cmpRecordA").value = records[0].id;
+  if ((!$("cmpRecordB").value || $("cmpRecordB").value === $("cmpRecordA").value) && records[1]) {
+    $("cmpRecordB").value = records[1].id;
+  }
+}
+
+function findAnyRecord(id) {
+  return getAllRecords().find((record) => record.id === id) || null;
+}
+
+function swapCompare() {
+  const a = $("cmpRecordA").value;
+  $("cmpRecordA").value = $("cmpRecordB").value;
+  $("cmpRecordB").value = a;
+  renderCompare();
 }
 
 function renderCompare() {
-  const a = findRecord(dom["compare-a"].value, "all");
-  const b = findRecord(dom["compare-b"].value, "all");
+  const a = findAnyRecord($("cmpRecordA").value);
+  const b = findAnyRecord($("cmpRecordB").value);
+  drawOverlapCompare($("canvasCmp"), a, b, $("cmpUnit").value);
+
   if (!a || !b) {
-    clearCanvas(dom["compare-chart"], "至少需要两条记录才能对比。");
-    dom["compare-metrics"].innerHTML = "";
+    $("compareMetrics").innerHTML = "";
+    drawArray3D($("canvasCmp3dA"), null, "g");
+    drawArray3D($("canvasCmp3dB"), null, "g");
     return;
   }
-  drawDistributionChart(dom["compare-chart"], [a, b], dom["compare-unit"].value);
-  dom["compare-metrics"].innerHTML = `
-    <div class="delta-card">
-      极细粉差值 B-A
-      <strong>${formatSigned(b.metrics.finesPct - a.metrics.finesPct)} pct</strong>
-    </div>
-    <div class="delta-card">
-      D50 差值 B-A
-      <strong>${formatSigned((b.metrics.d50UmApprox || 0) - (a.metrics.d50UmApprox || 0))} μm</strong>
-    </div>
-    <div class="delta-card">
-      粗粉差值 B-A
-      <strong>${formatSigned(b.metrics.coarsePct - a.metrics.coarsePct)} pct</strong>
-    </div>
-    <div class="delta-card">
-      跨度差值 B-A
-      <strong>${formatSigned((b.metrics.spanApprox || 0) - (a.metrics.spanApprox || 0))}</strong>
-    </div>
-  `;
+
+  const difference = (valueA, valueB, suffix = "") => `${formatSigned((valueB || 0) - (valueA || 0), 2)}${suffix}`;
+  $("compareMetrics").innerHTML = `
+    ${deltaCard("极细粉差值 B−A", difference(a.metrics.finesPct, b.metrics.finesPct, " pct"))}
+    ${deltaCard("≥1000 μm 差值 B−A", difference(a.metrics.coarsePct, b.metrics.coarsePct, " pct"))}
+    ${deltaCard("500–1000 μm 差值 B−A", difference(a.metrics.bodyPct, b.metrics.bodyPct, " pct"))}
+    ${deltaCard("回收率差值 B−A", difference(a.metrics.quality.recoveryPct, b.metrics.quality.recoveryPct, " pct"))}`;
+
+  const groups = groupRecords(getAllRecords());
+  const groupA = groups.find((group) => group.key === Core.recordGroupKey(a));
+  const groupB = groups.find((group) => group.key === Core.recordGroupKey(b));
+  $("cmp3dTitleA").textContent = `A · ${a.user.id} · ${a.grinder.brand} ${a.grinder.model}`;
+  $("cmp3dTitleB").textContent = `B · ${b.user.id} · ${b.grinder.brand} ${b.grinder.model}`;
+  drawArray3D($("canvasCmp3dA"), groupA, "pct");
+  drawArray3D($("canvasCmp3dB"), groupB, "pct");
 }
 
-function getAllComparableRecords() {
-  const byId = new Map();
-  [...state.store.records, ...state.communityRecords].forEach((record) => {
-    if (!byId.has(record.id)) byId.set(record.id, record);
-  });
-  return [...byId.values()];
+function deltaCard(label, value) {
+  return `<div class="delta-card">${escapeHtml(label)}<strong>${escapeHtml(value)}</strong></div>`;
 }
 
-async function downloadCommunity({ silent }) {
-  try {
-    const response = await fetch(`${DATABASE_PATH}?t=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const db = await response.json();
-    const records = Array.isArray(db.records) ? db.records : [];
-    state.communityRecords = records.map(normalizeIncomingRecord).filter(Boolean);
-    dom["community-status"].textContent = `已同步 ${state.communityRecords.length} 条社区记录。`;
-    renderFilters();
-    renderCommunityTable();
-    renderCompareOptions();
-    renderCompare();
-    if (!silent) toast("社区数据库已同步。");
-  } catch (error) {
-    dom["community-status"].innerHTML = `<span class="warn">社区数据库读取失败：${escapeHtml(error.message)}。本地使用不受影响。</span>`;
-    if (!silent) toast("社区数据库读取失败，本地功能仍可用。", true);
+async function syncCommunity({ quiet = false } = {}) {
+  if (!navigator.onLine) {
+    if (!quiet) toast("当前处于离线状态，已保留上次缓存的社区数据。", "error");
+    updateNetworkStatus("离线模式 · 使用上次社区数据库缓存");
+    return;
   }
+
+  $("networkDot").className = "status-dot syncing";
+  updateNetworkStatus("正在同步社区数据库…");
+  $("communityStatus").textContent = "正在同步…";
+  try {
+    const response = await fetch(`${DATABASE_PATH}?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const database = await response.json();
+    const records = Array.isArray(database.records)
+      ? database.records.map(Core.normalizeRecord).filter(Boolean)
+      : [];
+    state.communityRecords = dedupeRecords(records);
+    state.communityMeta = {
+      updatedAt: database.updatedAt || null,
+      users: database.users || {},
+      recordCount: database.recordCount ?? state.communityRecords.length,
+      userCount: database.userCount ?? unique(state.communityRecords.map((record) => record.user.id)).length
+    };
+    localStorage.setItem(COMMUNITY_CACHE_KEY, JSON.stringify({
+      cachedAt: new Date().toISOString(),
+      meta: state.communityMeta,
+      records: state.communityRecords
+    }));
+    refreshCommunityFilters();
+    refreshCompareOptions();
+    refresh3dGrinderOptions();
+    updateCommunitySummary();
+    renderCommunity();
+    renderCompare();
+    updateNetworkStatus(`社区数据库已同步 · ${state.communityRecords.length} 条记录`);
+    $("communityStatus").textContent = `已同步 ${state.communityRecords.length} 条记录`;
+    if (!quiet) toast("社区数据库同步完成。", "success");
+  } catch (error) {
+    updateNetworkStatus("社区数据库同步失败 · 本地记录不受影响");
+    $("communityStatus").textContent = `同步失败：${error.message}`;
+    if (!quiet) toast(`社区数据库同步失败：${error.message}`, "error");
+  }
+}
+
+function loadCachedCommunity() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(COMMUNITY_CACHE_KEY));
+    if (!cached || !Array.isArray(cached.records)) return;
+    state.communityRecords = dedupeRecords(cached.records.map(Core.normalizeRecord).filter(Boolean));
+    state.communityMeta = cached.meta || null;
+    $("communityStatus").textContent = `已载入缓存 ${state.communityRecords.length} 条`;
+  } catch (error) {
+    // A broken cache can be replaced by the next successful sync.
+  }
+}
+
+function updateCommunitySummary() {
+  const userCount = state.communityMeta?.userCount
+    ?? unique(state.communityRecords.map((record) => record.user.id)).length;
+  const recordCount = state.communityMeta?.recordCount ?? state.communityRecords.length;
+  $("communityUserCount").textContent = String(userCount);
+  $("communityRecordCount").textContent = String(recordCount);
+  $("communityUpdatedAt").textContent = state.communityMeta?.updatedAt ? formatDate(state.communityMeta.updatedAt) : "—";
+  $("communityCountBadge").textContent = String(state.communityRecords.length);
+}
+
+function refreshCommunityFilters() {
+  fillSelect(
+    $("communityUserFilter"),
+    unique(state.communityRecords.map((record) => record.user.id)).sort(),
+    "全部用户"
+  );
+  fillSelect(
+    $("communityBrandFilter"),
+    unique(state.communityRecords.map((record) => record.grinder.brand)).sort((a, b) => a.localeCompare(b, "zh-CN")),
+    "全部品牌"
+  );
+}
+
+function fillSelect(select, values, defaultLabel) {
+  const current = select.value;
+  select.innerHTML = `<option value="">${escapeHtml(defaultLabel)}</option>` +
+    values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  if (values.includes(current)) select.value = current;
+}
+
+function getFilteredCommunityRecords() {
+  const query = $("communitySearch").value.trim().toLowerCase();
+  const user = $("communityUserFilter").value;
+  const brand = $("communityBrandFilter").value;
+  const grade = $("communityGradeFilter").value;
+  return state.communityRecords.filter((record) => {
+    if (user && record.user.id !== user) return false;
+    if (brand && record.grinder.brand !== brand) return false;
+    if (grade && record.metrics.quality.grade !== grade) return false;
+    return !query || searchableRecordText(record).includes(query);
+  });
+}
+
+function renderCommunity() {
+  const container = $("communityContent");
+  const records = getFilteredCommunityRecords();
+  if (!records.length) {
+    container.innerHTML = `<div class="empty">${state.communityRecords.length ? "没有符合筛选条件的记录。" : "社区数据库目前为空，或尚未同步。"}</div>`;
+    return;
+  }
+  container.innerHTML = recordTable(records, { community: true });
+  bindRecordTableActions(container, true);
+}
+
+function searchableRecordText(record) {
+  return [
+    record.user.id,
+    record.user.name,
+    record.grinder.brand,
+    record.grinder.model,
+    record.grinder.setting,
+    record.sample.bean,
+    record.sample.roastLevel,
+    record.notes
+  ].join(" ").toLowerCase();
 }
 
 function importCommunityRecord(id) {
   const record = state.communityRecords.find((item) => item.id === id);
   if (!record) return;
-  state.store.records = upsertRecord(state.store.records, cloneRecord(record, "community-import"));
+  const imported = Core.normalizeRecord({ ...record, source: "community-import" });
+  state.store.records = dedupeRecords([imported, ...state.store.records]);
+  state.selectedRecordId = imported.id;
+  state.selectedRecordSource = "local";
+  rebuildCatalogFromRecords(state.store);
   saveStore();
   renderAll();
-  toast("社区记录已导入本地。");
+  toast("社区记录已导入本地，可用于离线对比。", "success");
 }
 
-function importSelectedCommunityRecords() {
+function importSelectedCommunity() {
   const selected = state.communityRecords.filter((record) => state.selectedCommunityIds.has(record.id));
   if (!selected.length) {
-    toast("请先选择要导入的社区记录。", true);
+    toast("请先选择要导入的社区记录。", "error");
     return;
   }
   selected.forEach((record) => {
-    state.store.records = upsertRecord(state.store.records, cloneRecord(record, "community-import"));
+    const imported = Core.normalizeRecord({ ...record, source: "community-import" });
+    state.store.records = dedupeRecords([imported, ...state.store.records]);
   });
+  rebuildCatalogFromRecords(state.store);
   saveStore();
   renderAll();
-  toast(`已导入 ${selected.length} 条社区记录。`);
+  toast(`已导入 ${selected.length} 条社区记录。`, "success");
 }
 
-function cloneRecord(record, source) {
+function compareSelectedCommunity() {
+  const selected = state.communityRecords.filter((record) => state.selectedCommunityIds.has(record.id));
+  if (selected.length !== 2) {
+    toast("请正好选择 2 条社区记录进行对比。", "error");
+    return;
+  }
+  refreshCompareOptions();
+  $("cmpRecordA").value = selected[0].id;
+  $("cmpRecordB").value = selected[1].id;
+  renderCompare();
+  switchTab("compare");
+}
+
+function downloadSelectedCommunity() {
+  const selected = state.communityRecords.filter((record) => state.selectedCommunityIds.has(record.id));
+  if (!selected.length) {
+    toast("请先选择要下载的社区记录。", "error");
+    return;
+  }
+  downloadJson({
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    exportedAt: new Date().toISOString(),
+    records: selected
+  }, `grind-psd-community-${dateStamp()}.json`);
+}
+
+async function downloadUserLibrary(userId) {
+  try {
+    const response = await fetch(`${USER_DATA_PATH}/${encodeURIComponent(userId)}.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    downloadJson(data, `grind-psd-user-${userId}.json`);
+  } catch (error) {
+    toast(`用户库下载失败：${error.message}`, "error");
+  }
+}
+
+function openSubmitModal() {
+  const record = getSelectedRecord();
+  if (!record || state.selectedRecordSource === "community") {
+    toast("请先选择一条本地记录。", "error");
+    return;
+  }
+  $("licenseConsent").checked = false;
+  showModal("submitModal");
+  updateSubmitPayload();
+}
+
+function buildPublicPayload(record, licensed) {
   return {
-    ...record,
-    source,
-    importedAt: new Date().toISOString()
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    id: record.id,
+    user: record.user,
+    grinder: {
+      brand: record.grinder.brand,
+      model: record.grinder.model,
+      setting: record.grinder.setting,
+      settingOrder: record.grinder.settingOrder,
+      color: record.grinder.color
+    },
+    sample: record.sample,
+    weightsGrams: record.weightsGrams,
+    totalG: record.totalG,
+    notes: record.notes,
+    license: licensed ? Core.DATA_LICENSE : null,
+    createdAt: record.createdAt
   };
 }
 
-function openSubmitDialog() {
+function updateSubmitPayload() {
   const record = getSelectedRecord();
-  if (!record) {
-    toast("请先选择一条记录。", true);
+  if (!record) return;
+  const payload = buildPublicPayload(record, $("licenseConsent").checked);
+  const validation = Core.validatePublicRecord(payload);
+  $("submitJson").value = JSON.stringify(payload, null, 2);
+
+  const items = [
+    {
+      type: /^[a-z0-9][a-z0-9_-]{1,47}$/.test(record.user.id) ? "ok" : "error",
+      text: `用户 ID：${record.user.id}`
+    },
+    {
+      type: record.standardId === Core.STANDARD_ID ? "ok" : "error",
+      text: `标准 ID：${record.standardId}`
+    },
+    {
+      type: record.metrics.quality.grade === "C" ? "warn" : (record.metrics.quality.grade === "D" ? "error" : "ok"),
+      text: `质量等级 ${record.metrics.quality.grade} · 回收率 ${record.metrics.quality.recoveryPct === null ? "未评级" : `${formatNumber(record.metrics.quality.recoveryPct, 2)}%`}`
+    },
+    {
+      type: record.sample.durationSec > 0 && record.sample.sieveDevice ? "ok" : "error",
+      text: `筛分条件：${record.sample.durationSec || 0} s · ${record.sample.sieveDevice || "未填写筛具"}`
+    },
+    {
+      type: $("licenseConsent").checked ? "ok" : "error",
+      text: $("licenseConsent").checked ? "已同意 CC BY 4.0 数据许可" : "尚未同意公开数据许可"
+    }
+  ];
+  validation.warnings.forEach((warning) => items.push({ type: "warn", text: warning }));
+  $("submitChecklist").innerHTML = items.map((item) => {
+    return `<div class="check-item ${item.type === "ok" ? "" : item.type}">${escapeHtml(item.text)}</div>`;
+  }).join("");
+  $("openIssueBtn").disabled = validation.errors.length > 0;
+}
+
+async function copySubmitJson() {
+  try {
+    await navigator.clipboard.writeText($("submitJson").value);
+    toast("标准 JSON 已复制。", "success");
+  } catch (error) {
+    $("submitJson").select();
+    document.execCommand("copy");
+    toast("标准 JSON 已复制。", "success");
+  }
+}
+
+function openSubmissionIssue() {
+  const record = getSelectedRecord();
+  if (!record) return;
+  const payload = JSON.parse($("submitJson").value);
+  const validation = Core.validatePublicRecord(payload);
+  if (validation.errors.length) {
+    toast(validation.errors[0], "error");
     return;
   }
-  const payload = prepareRecordForSubmit(record);
-  dom["submit-json"].value = JSON.stringify(payload, null, 2);
-  showDialog(dom["submit-dialog"]);
-}
-
-function prepareRecordForSubmit(record) {
-  const clean = normalizeIncomingRecord(record);
-  clean.source = "github-issue";
-  clean.updatedAt = new Date().toISOString();
-  return clean;
-}
-
-async function copySubmitJson(event) {
-  event.preventDefault();
-  await navigator.clipboard.writeText(dom["submit-json"].value);
-  toast("JSON 已复制。");
-}
-
-function openIssueForSubmit(event) {
-  event.preventDefault();
-  const payload = dom["submit-json"].value;
-  if (!payload) return;
-  const record = JSON.parse(payload);
-  const title = `[PSD] ${record.user.id} ${record.grinder.brand} ${record.grinder.model} ${record.grinder.setting}`;
+  const title = `[PSD] ${record.user.id} · ${record.grinder.brand} ${record.grinder.model} · ${record.grinder.setting}`;
   const body = [
+    "## Grind-PSD 标准数据提交",
+    "",
+    "请勿修改以下标记之间的 JSON。自动工作流会校验原始数据并写入社区数据库。",
+    "",
     "BEGIN_GRIND_PSD_JSON",
     "```json",
-    payload,
+    JSON.stringify(payload, null, 2),
     "```",
     "END_GRIND_PSD_JSON",
     "",
-    "提交说明：请不要修改 BEGIN/END 标记内的 JSON。仓库工作流会校验该记录并写入 data/database.json。"
+    `标准：\`${Core.STANDARD_ID}\``,
+    `数据许可：${Core.DATA_LICENSE}`
   ].join("\n");
-  const url = `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function exportSelectedRecord(event) {
-  if (event) event.preventDefault();
-  const record = getSelectedRecord();
-  if (!record) {
-    toast("没有可导出的记录。", true);
+  const url = `https://github.com/${REPOSITORY}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    toast("浏览器阻止了新窗口，请允许弹窗后重试。", "error");
     return;
   }
-  downloadJson(prepareRecordForSubmit(record), `${record.id}.json`);
+  hideModal("submitModal");
+  toast("已打开 GitHub。发布 Issue 后，数据会自动校验并入库。", "success");
 }
 
-function exportLocalStore(event) {
-  if (event) event.preventDefault();
-  downloadJson(state.store, `grind-psd-local-${new Date().toISOString().slice(0, 10)}.json`);
+function exportAllJson() {
+  downloadJson({
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    exportedAt: new Date().toISOString(),
+    user: state.store.user,
+    catalog: state.store.catalog,
+    records: state.store.records
+  }, `grind-psd-local-${dateStamp()}.json`);
 }
 
-function importFile(event) {
+function exportSingleRecord(record) {
+  downloadJson(buildPublicPayload(record, false), `${record.id}.json`);
+}
+
+function exportRecordsCsv(records, prefix) {
+  if (!records.length) {
+    toast("没有可导出的记录。", "error");
+    return;
+  }
+  const headers = [
+    "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_order",
+    "dose_g", ...Core.WEIGHT_KEYS, "recovered_g", "recovery_pct", "quality_grade",
+    "coarse_pct", "body_500_1000_pct", "fines_lt300_pct", "bean", "roast_level",
+    "method", "duration_sec", "sieve_device", "replicate", "created_at", "notes"
+  ];
+  const rows = records.map((record) => [
+    record.id,
+    record.user.id,
+    record.user.name,
+    record.grinder.brand,
+    record.grinder.model,
+    record.grinder.setting,
+    record.grinder.settingOrder ?? "",
+    record.sample.doseG,
+    ...Core.WEIGHT_KEYS.map((key) => record.weightsGrams[key]),
+    record.totalG,
+    record.metrics.quality.recoveryPct ?? "",
+    record.metrics.quality.grade,
+    record.metrics.coarsePct,
+    record.metrics.bodyPct,
+    record.metrics.finesPct,
+    record.sample.bean,
+    record.sample.roastLevel,
+    record.sample.method,
+    record.sample.durationSec,
+    record.sample.sieveDevice,
+    record.sample.replicate,
+    record.createdAt,
+    record.notes
+  ]);
+  const csv = "\ufeff" + [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  downloadText(csv, `${prefix}-${dateStamp()}.csv`, "text/csv;charset=utf-8");
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function importJsonFile(event) {
   const file = event.target.files[0];
+  event.target.value = "";
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (Array.isArray(parsed.records)) {
-        parsed.records.map(normalizeIncomingRecord).filter(Boolean).forEach((record) => {
-          state.store.records = upsertRecord(state.store.records, cloneRecord(record, "import"));
-        });
+      const before = state.store.records.length;
+      if (parsed.brands && !parsed.records) {
+        importLegacyV1Object(parsed);
       } else {
-        const record = normalizeIncomingRecord(parsed);
-        if (!record) throw new Error("不符合 Grind-PSD 标准记录结构");
-        state.store.records = upsertRecord(state.store.records, cloneRecord(record, "import"));
+        const candidates = Array.isArray(parsed.records) ? parsed.records : [parsed];
+        const normalized = candidates.map(Core.normalizeRecord).filter(Boolean);
+        if (!normalized.length) throw new Error("文件中没有符合当前标准的记录");
+        normalized.forEach((record) => {
+          state.store.records = dedupeRecords([{ ...record, source: "import" }, ...state.store.records]);
+        });
       }
+      rebuildCatalogFromRecords(state.store);
       saveStore();
-      selectInitialRecord();
+      selectNewestRecord();
       renderAll();
-      toast("导入成功。");
+      toast(`导入完成，新增 ${state.store.records.length - before} 条记录。`, "success");
     } catch (error) {
-      toast(`导入失败：${error.message}`, true);
+      toast(`导入失败：${error.message}`, "error");
     }
   };
   reader.readAsText(file);
-  event.target.value = "";
 }
 
-async function loadStandardJson() {
-  try {
-    const response = await fetch(`data/standard.json?t=${Date.now()}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.standard = await response.json();
-    toast(`已读取标准 ${state.standard.standardId || STANDARD_ID}。`);
-  } catch (error) {
-    toast(`读取标准失败：${error.message}`, true);
-  }
-}
-
-function normalizeIncomingRecord(input) {
-  if (!input || input.standardId !== STANDARD_ID || !input.user || !input.grinder || !input.weightsGrams) return null;
-  const weights = normalizeWeights(input.weightsGrams);
-  const totalG = round(sum(Object.values(weights)), 2);
-  if (totalG <= 0) return null;
-  const record = {
-    schemaVersion: input.schemaVersion || "2.0.0",
-    standardId: STANDARD_ID,
-    id: input.id || "",
-    user: {
-      id: normalizeUserId(input.user.id),
-      name: String(input.user.name || input.user.id || "").trim()
-    },
-    grinder: {
-      brand: String(input.grinder.brand || "").trim(),
-      model: String(input.grinder.model || "").trim(),
-      setting: String(input.grinder.setting || "").trim()
-    },
-    sample: {
-      doseG: round(toNumber(input.sample?.doseG || totalG), 2),
-      bean: String(input.sample?.bean || "").trim(),
-      method: String(input.sample?.method || "").trim() || "手动摇筛 60 秒"
-    },
-    weightsGrams: weights,
-    totalG,
-    percentages: {},
-    metrics: calculateMetrics(weights, totalG),
-    notes: String(input.notes || "").trim(),
-    createdAt: input.createdAt || new Date().toISOString(),
-    updatedAt: input.updatedAt || input.createdAt || new Date().toISOString(),
-    source: input.source || "unknown"
-  };
-  if (!record.user.id || !record.grinder.brand || !record.grinder.model || !record.grinder.setting) return null;
-  SIEVE_BINS.forEach((bin) => {
-    record.percentages[bin.id.replace("_g", "_pct")] = round((record.weightsGrams[bin.id] || 0) / totalG * 100, 2);
+function importLegacyV1Object(v1) {
+  Object.entries(v1.brands || {}).forEach(([brand, brandData]) => {
+    Object.entries(brandData.models || {}).forEach(([model, modelData]) => {
+      const color = Core.normalizeHexColor(modelData.color);
+      (modelData.records || []).forEach((legacyRecord) => {
+        const record = Core.createRecord({
+          user: state.store.user,
+          grinder: {
+            brand,
+            model,
+            setting: legacyRecord.dial,
+            settingOrder: Core.deriveSettingOrder(legacyRecord.dial),
+            color
+          },
+          sample: {
+            doseG: legacyRecord.total,
+            method: "原版导入：筛分方法未填写",
+            durationSec: 0,
+            sieveDevice: ""
+          },
+          weightsGrams: legacyRecord.weights,
+          notes: "由原版 Grind-PSD JSON 导入",
+          source: "import-v1",
+          createdAt: parseLegacyDate(legacyRecord.time)
+        });
+        state.store.records = dedupeRecords([record, ...state.store.records]);
+      });
+    });
   });
-  record.id = input.id || buildRecordId(record);
-  return record;
 }
 
-function getSelectedRecord() {
-  if (!state.selectedRecordId) return null;
-  return state.store.records.find((record) => record.id === state.selectedRecordId) ||
-    state.communityRecords.find((record) => record.id === state.selectedRecordId) ||
-    null;
+function buildStandardRows() {
+  $("standardRows").innerHTML = Core.SIEVES.map((sieve) => `
+    <tr>
+      <td>${escapeHtml(sieve.label)}</td>
+      <td>${escapeHtml(sieve.range)}</td>
+      <td><code>${escapeHtml(sieve.key)}</code></td>
+    </tr>`).join("");
 }
 
-function findRecord(id, source) {
-  if (!id) return null;
-  if (source === "local") return state.store.records.find((record) => record.id === id) || null;
-  if (source === "community") return state.communityRecords.find((record) => record.id === id) || null;
-  return getAllComparableRecords().find((record) => record.id === id) || null;
+function showModal(id) {
+  const modal = $(id);
+  if (!modal) return;
+  document.querySelectorAll(".overlay:not(.hidden)").forEach((other) => {
+    if (other.id !== id) other.classList.add("hidden");
+  });
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
 }
 
-function upsertRecord(records, incoming) {
-  const without = records.filter((record) => record.id !== incoming.id);
-  return [incoming, ...without];
+function hideModal(id) {
+  const modal = $(id);
+  if (!modal) return;
+  modal.classList.add("hidden");
+  if (!document.querySelector(".overlay:not(.hidden)")) document.body.style.overflow = "";
 }
 
-function drawDistributionChart(canvas, records, unit) {
-  const ctx = setupCanvas(canvas);
-  const { width, height } = canvas.getBoundingClientRect();
-  const pad = { left: 58, right: 22, top: 30, bottom: 56 };
+async function installApp() {
+  if (state.deferredInstallPrompt) {
+    state.deferredInstallPrompt.prompt();
+    await state.deferredInstallPrompt.userChoice;
+    state.deferredInstallPrompt = null;
+    return;
+  }
+
+  const ua = navigator.userAgent.toLowerCase();
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+  if (standalone) {
+    $("installInstructions").innerHTML = '<div class="install-step"><strong>已安装</strong>当前正在以 App 模式运行，数据仍保存在此设备。</div>';
+  } else if (/iphone|ipad|ipod/.test(ua)) {
+    $("installInstructions").innerHTML = `
+      <div class="install-step"><strong>iPhone / iPad</strong>使用 Safari 打开本页，点击底部“分享”按钮，再选择“添加到主屏幕”。</div>
+      <div class="install-step"><strong>注意</strong>不要使用微信内置浏览器安装；iOS 的本地数据与 Safari 网站数据关联。</div>`;
+  } else {
+    $("installInstructions").innerHTML = `
+      <div class="install-step"><strong>Android / 桌面 Chrome 或 Edge</strong>打开浏览器菜单，选择“安装应用”或“添加到主屏幕”。</div>
+      <div class="install-step"><strong>离线能力</strong>首次联网打开后，记录与绘图可离线使用；社区同步和提交仍需要网络。</div>`;
+  }
+  showModal("installModal");
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || location.protocol === "file:") return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch((error) => {
+      console.warn("Service worker registration failed:", error);
+    });
+  });
+}
+
+function drawBarChart(canvas, record, unit) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  const pad = { left: 58, right: 22, top: 28, bottom: 58 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const values = records.map((record) => SIEVE_BINS.map((bin) => unit === "gram" ? record.weightsGrams[bin.id] : percentFor(record, bin.id)));
-  const maxValue = Math.max(1, ...values.flat()) * 1.15;
-  const groupW = plotW / SIEVE_BINS.length;
-  const barW = Math.min(34, groupW / (records.length + 0.6));
-
-  ctx.clearRect(0, 0, width, height);
+  const values = Core.SIEVES.map((sieve) => {
+    return unit === "pct"
+      ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
+      : (record.weightsGrams[sieve.key] || 0);
+  });
+  const maxValue = Math.max(...values) * 1.16 || 1;
   drawGrid(ctx, pad, plotW, plotH, maxValue, unit);
+  const color = Core.normalizeHexColor(record.grinder.color);
+  const groupW = plotW / Core.SIEVES.length;
+  const barW = Math.min(72, groupW * 0.54);
 
-  SIEVE_BINS.forEach((bin, binIndex) => {
-    records.forEach((record, recordIndex) => {
-      const value = values[recordIndex][binIndex] || 0;
-      const x = pad.left + groupW * binIndex + groupW / 2 - (barW * records.length) / 2 + barW * recordIndex;
-      const barH = value / maxValue * plotH;
-      const y = pad.top + plotH - barH;
-      ctx.fillStyle = records.length === 1 ? bin.color : paletteForRecord(recordIndex);
-      roundRect(ctx, x, y, barW * 0.82, barH, 4);
-      ctx.fill();
-    });
-
-    ctx.fillStyle = "#5c6a62";
+  Core.SIEVES.forEach((sieve, index) => {
+    const value = values[index];
+    const barH = plotH * value / maxValue;
+    const x = pad.left + groupW * (index + 0.5) - barW / 2;
+    const y = pad.top + plotH - barH;
+    const gradient = ctx.createLinearGradient(0, y, 0, pad.top + plotH);
+    gradient.addColorStop(0, color);
+    gradient.addColorStop(1, shadeColor(color, 0.55));
+    ctx.fillStyle = gradient;
+    roundedRectPath(ctx, x, y, barW, barH, 5);
+    ctx.fill();
+    if (value > 0) {
+      ctx.fillStyle = "#efe6da";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`${formatPlainNumber(value, unit === "pct" ? 1 : 2)}${unit === "pct" ? "%" : "g"}`, x + barW / 2, y - 7);
+    }
+    ctx.fillStyle = "#a89880";
     ctx.font = "12px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(bin.label.replace("筛上", ""), pad.left + groupW * binIndex + groupW / 2, pad.top + plotH + 20);
+    ctx.fillText(sieve.shortLabel, x + barW / 2, pad.top + plotH + 21);
     ctx.font = "10px sans-serif";
-    ctx.fillText(bin.range, pad.left + groupW * binIndex + groupW / 2, pad.top + plotH + 36);
+    ctx.fillText(sieve.range, x + barW / 2, pad.top + plotH + 39);
   });
-
-  if (records.length > 1) {
-    drawLegend(ctx, records, pad.left, 16);
-  }
 }
 
 function drawGrid(ctx, pad, plotW, plotH, maxValue, unit) {
-  ctx.strokeStyle = "#d7ded8";
-  ctx.fillStyle = "#5c6a62";
+  ctx.clearRect(0, 0, pad.left + plotW + pad.right, pad.top + plotH + pad.bottom);
+  ctx.strokeStyle = "#3a2f26";
+  ctx.fillStyle = "#a89880";
   ctx.font = "11px sans-serif";
   ctx.textAlign = "right";
-  for (let i = 0; i <= 4; i += 1) {
-    const value = maxValue * i / 4;
-    const y = pad.top + plotH - plotH * i / 4;
+  for (let index = 0; index <= 4; index += 1) {
+    const value = maxValue * index / 4;
+    const y = pad.top + plotH - plotH * index / 4;
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(pad.left + plotW, y);
     ctx.stroke();
-    ctx.fillText(unit === "gram" ? `${formatNumber(value, 1)}g` : `${formatNumber(value, 0)}%`, pad.left - 8, y + 4);
+    ctx.fillText(`${formatPlainNumber(value, unit === "pct" ? 0 : 1)}${unit === "pct" ? "%" : "g"}`, pad.left - 8, y + 4);
   }
 }
 
-function drawLegend(ctx, records, x, y) {
-  ctx.font = "12px sans-serif";
-  ctx.textAlign = "left";
-  records.forEach((record, index) => {
-    const label = `${record.grinder.brand} ${record.grinder.model} ${record.grinder.setting}`;
-    const lx = x + index * 260;
-    ctx.fillStyle = paletteForRecord(index);
-    ctx.fillRect(lx, y, 12, 12);
-    ctx.fillStyle = "#17201b";
-    ctx.fillText(label.slice(0, 28), lx + 18, y + 11);
+function drawArray3D(canvas, group, unit = "g", noteElement = null) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  if (!group || !group.records.length) {
+    drawEmptyCanvas(ctx, width, height, "暂无可绘制的刻度记录");
+    if (noteElement) noteElement.textContent = "至少需要同一用户、同一磨豆机的记录。";
+    return;
+  }
+
+  const rows = latestBySetting(group.records);
+  if (noteElement) {
+    noteElement.textContent = rows.length >= 3
+      ? `${group.userId} · ${group.brand} ${group.model} 共 ${rows.length} 个刻度。近排=较细，远排=较粗；排序优先使用“由细到粗排序值”。`
+      : `当前只有 ${rows.length} 个不同刻度（${rows.map((record) => record.grinder.setting).join("、")}），建议录入 3 个及以上刻度。`;
+  }
+
+  const values = (record) => Core.SIEVES.map((sieve) => {
+    return unit === "pct"
+      ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
+      : (record.weightsGrams[sieve.key] || 0);
   });
+  let maxValue = 0;
+  rows.forEach((record) => values(record).forEach((value) => {
+    maxValue = Math.max(maxValue, value);
+  }));
+  maxValue = maxValue * 1.12 || 1;
+
+  const countX = Core.SIEVES.length;
+  const countZ = rows.length;
+  const depthTotal = Math.min(160, 34 * countZ);
+  const depthX = depthTotal / Math.max(1, countZ);
+  const depthY = depthTotal * 0.6 / Math.max(1, countZ);
+  const pad = { left: 68, right: 70, top: 38, bottom: 68 };
+  const plotW = Math.max(310, width - pad.left - pad.right - depthTotal);
+  const plotH = Math.max(190, height - pad.top - pad.bottom - depthTotal * 0.6);
+  const cell = plotW / countX;
+  const barW = cell * 0.5;
+  const baseY = height - pad.bottom;
+  const scaleY = plotH / maxValue;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.strokeStyle = "#3a2f26";
+  for (let index = 0; index <= countX; index += 1) {
+    const x = pad.left + cell * index;
+    ctx.beginPath();
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x + depthTotal, baseY - depthTotal * 0.6);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(pad.left, baseY);
+  ctx.lineTo(pad.left + plotW, baseY);
+  ctx.stroke();
+
+  ctx.fillStyle = "#a89880";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "right";
+  for (let index = 0; index <= 4; index += 1) {
+    const value = maxValue * index / 4;
+    const y = baseY - value * scaleY;
+    ctx.fillText(`${formatPlainNumber(value, unit === "pct" ? 0 : 1)}${unit === "pct" ? "%" : "g"}`, pad.left - 8, y + 4);
+    ctx.strokeStyle = "rgba(58,47,38,.65)";
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+  }
+
+  const baseColor = Core.normalizeHexColor(group.color);
+  for (let rowIndex = countZ - 1; rowIndex >= 0; rowIndex -= 1) {
+    const record = rows[rowIndex];
+    const rowValues = values(record);
+    const offsetX = rowIndex * depthX;
+    const offsetY = rowIndex * depthY;
+    const brightness = 0.55 + 0.45 * (1 - rowIndex / Math.max(1, countZ - 1));
+    const front = shadeColor(baseColor, brightness);
+    const top = shadeColor(baseColor, brightness * 1.3);
+    const side = shadeColor(baseColor, brightness * 0.7);
+    for (let index = 0; index < countX; index += 1) {
+      const value = rowValues[index];
+      if (value <= 0) continue;
+      const barH = value * scaleY;
+      const x = pad.left + cell * (index + 0.5) - barW / 2 + offsetX;
+      const y = baseY - offsetY;
+      const prismX = depthX * 0.58;
+      const prismY = depthY * 0.58;
+      ctx.fillStyle = side;
+      ctx.beginPath();
+      ctx.moveTo(x + barW, y - barH);
+      ctx.lineTo(x + barW + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW + prismX, y - prismY);
+      ctx.lineTo(x + barW, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = top;
+      ctx.beginPath();
+      ctx.moveTo(x, y - barH);
+      ctx.lineTo(x + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW, y - barH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = front;
+      ctx.fillRect(x, y - barH, barW, barH);
+    }
+    ctx.strokeStyle = shadeColor(baseColor, brightness * 1.45);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    rowValues.forEach((value, index) => {
+      const x = pad.left + cell * (index + 0.5) + offsetX;
+      const y = baseY - offsetY - value * scaleY;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#efe6da";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`刻度 ${record.grinder.setting}`, pad.left + plotW + offsetX + 7, baseY - offsetY + 2);
+  }
+
+  ctx.fillStyle = "#a89880";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "center";
+  Core.SIEVES.forEach((sieve, index) => {
+    ctx.fillText(sieve.shortLabel, pad.left + cell * (index + 0.5), baseY + 22);
+    ctx.font = "9px sans-serif";
+    ctx.fillText(sieve.range, pad.left + cell * (index + 0.5), baseY + 38);
+    ctx.font = "11px sans-serif";
+  });
+  ctx.fillStyle = "#efe6da";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`${group.userId} · ${group.brand} ${group.model}`, pad.left, 20);
+  ctx.fillStyle = "#a89880";
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText("Z：细（近）→ 粗（远）", width - 10, 20);
 }
 
-function paletteForRecord(index) {
-  return ["#1f8a70", "#2867b2", "#b23b3b", "#7c5ab8"][index % 4];
+function drawOverlapCompare(canvas, recordA, recordB, unit) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  if (!recordA || !recordB) {
+    drawEmptyCanvas(ctx, width, height, "至少需要两条记录才能对比");
+    return;
+  }
+
+  const value = (record, sieve) => unit === "pct"
+    ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
+    : (record.weightsGrams[sieve.key] || 0);
+  let maxValue = 0;
+  Core.SIEVES.forEach((sieve) => {
+    maxValue = Math.max(maxValue, value(recordA, sieve), value(recordB, sieve));
+  });
+  maxValue = maxValue * 1.16 || 1;
+  const pad = { left: 58, right: 22, top: 54, bottom: 58 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  drawGrid(ctx, pad, plotW, plotH, maxValue, unit);
+
+  const colorA = Core.normalizeHexColor(recordA.grinder.color, "#8ab4f8");
+  const colorB = Core.normalizeHexColor(recordB.grinder.color, "#e05d5d");
+  const mixed = mixColors(colorA, colorB);
+  const groupW = plotW / Core.SIEVES.length;
+  const barW = Math.min(72, groupW * 0.5);
+  Core.SIEVES.forEach((sieve, index) => {
+    const valueA = value(recordA, sieve);
+    const valueB = value(recordB, sieve);
+    const heightA = plotH * valueA / maxValue;
+    const heightB = plotH * valueB / maxValue;
+    const overlapHeight = Math.min(heightA, heightB);
+    const maxHeight = Math.max(heightA, heightB);
+    const x = pad.left + groupW * (index + 0.5) - barW / 2;
+    const baseY = pad.top + plotH;
+    if (overlapHeight > 0) {
+      ctx.fillStyle = mixed;
+      ctx.fillRect(x, baseY - overlapHeight, barW, overlapHeight);
+    }
+    if (maxHeight > overlapHeight) {
+      ctx.fillStyle = heightA > heightB ? colorA : colorB;
+      ctx.fillRect(x, baseY - maxHeight, barW, maxHeight - overlapHeight);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,.16)";
+    ctx.strokeRect(x, baseY - maxHeight, barW, maxHeight);
+    ctx.fillStyle = "#a89880";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(sieve.shortLabel, x + barW / 2, baseY + 21);
+    ctx.font = "9px sans-serif";
+    ctx.fillText(sieve.range, x + barW / 2, baseY + 38);
+  });
+
+  drawLegend(ctx, [
+    { color: colorA, label: `A · ${recordA.user.id} · ${recordA.grinder.brand} ${recordA.grinder.model} ${recordA.grinder.setting}` },
+    { color: colorB, label: `B · ${recordB.user.id} · ${recordB.grinder.brand} ${recordB.grinder.model} ${recordB.grinder.setting}` },
+    { color: mixed, label: "重叠区域" }
+  ], pad.left, 17, width - pad.right);
+}
+
+function drawLegend(ctx, items, startX, y, maxX) {
+  let x = startX;
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "left";
+  items.forEach((item) => {
+    const label = item.label.length > 34 ? `${item.label.slice(0, 33)}…` : item.label;
+    const needed = 18 + ctx.measureText(label).width + 24;
+    if (x + needed > maxX) return;
+    ctx.fillStyle = item.color;
+    ctx.fillRect(x, y, 12, 12);
+    ctx.fillStyle = "#efe6da";
+    ctx.fillText(label, x + 17, y + 10);
+    x += needed;
+  });
 }
 
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const width = rect.width || canvas.parentElement.clientWidth || 800;
-  const height = Number(canvas.getAttribute("height")) || 360;
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
+  const width = Math.max(620, rect.width || canvas.parentElement?.clientWidth || 800);
+  const height = Number(canvas.getAttribute("height")) || 400;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
   canvas.style.height = `${height}px`;
+  canvas.style.width = `${width}px`;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return ctx;
+  ctx.clearRect(0, 0, width, height);
+  return { ctx, width, height };
 }
 
-function clearCanvas(canvas, message) {
-  const ctx = setupCanvas(canvas);
-  const rect = canvas.getBoundingClientRect();
-  const width = rect.width || canvas.parentElement.clientWidth || 800;
-  const height = Number(canvas.getAttribute("height")) || 360;
+function drawEmptyCanvas(ctx, width, height, message) {
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#5c6a62";
-  ctx.font = "14px sans-serif";
+  ctx.fillStyle = "#a89880";
+  ctx.font = "13px sans-serif";
   ctx.textAlign = "center";
   ctx.fillText(message, width / 2, height / 2);
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, Math.abs(h) / 2, Math.abs(w) / 2);
+function roundedRectPath(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2);
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + w, y, x + w, y + h, radius);
-  ctx.arcTo(x + w, y + h, x, y + h, radius);
-  ctx.arcTo(x, y + h, x, y, radius);
-  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
   ctx.closePath();
 }
 
-function percentFor(record, binId) {
-  return record.totalG ? (record.weightsGrams[binId] || 0) / record.totalG * 100 : 0;
+function shadeColor(hex, factor) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgb(${[r, g, b].map((value) => Math.max(0, Math.min(255, Math.round(value * factor)))).join(",")})`;
 }
 
-function nullableMetric(value, unit) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  return `${formatNumber(value, unit ? 0 : 2)}${unit ? ` ${unit}` : ""}`;
+function mixColors(colorA, colorB) {
+  const a = hexToRgb(colorA);
+  const b = hexToRgb(colorB);
+  return `rgb(${a.map((value, index) => Math.round((value + b[index]) / 2)).join(",")})`;
 }
 
-function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("zh-CN");
+function hexToRgb(hex) {
+  const normalized = Core.normalizeHexColor(hex).slice(1);
+  return [
+    parseInt(normalized.slice(0, 2), 16),
+    parseInt(normalized.slice(2, 4), 16),
+    parseInt(normalized.slice(4, 6), 16)
+  ];
 }
 
-function formatNumber(value, digits) {
-  const number = Number(value || 0);
-  return number.toLocaleString("zh-CN", {
+function gradeColor(grade) {
+  return {
+    A: "#6fbf73",
+    B: "#8ab4f8",
+    C: "#ffd166",
+    D: "#e05d5d",
+    U: "#a89880"
+  }[grade] || "#a89880";
+}
+
+function paletteForIndex(index) {
+  return PALETTE[index % PALETTE.length];
+}
+
+function unique(values) {
+  return [...new Set(values.filter((value) => value !== null && value !== undefined && value !== ""))];
+}
+
+function formatNumber(value, digits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+  return Number(value).toLocaleString("zh-CN", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
 }
 
-function formatSigned(value) {
-  const rounded = round(value, 2);
-  return `${rounded > 0 ? "+" : ""}${formatNumber(rounded, 2)}`;
-}
-
-function toNumber(value) {
+function formatPlainNumber(value, digits = 2) {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : 0;
+  return Number.isFinite(number) ? number.toFixed(digits) : "0";
 }
 
-function round(value, digits) {
-  const factor = 10 ** digits;
-  return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
+function formatSigned(value, digits = 2) {
+  const number = Core.round(Number(value) || 0, digits);
+  return `${number > 0 ? "+" : ""}${formatNumber(number, digits)}`;
 }
 
-function sum(values) {
-  return values.reduce((total, value) => total + toNumber(value), 0);
+function formatDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
-function unique(values) {
-  return [...new Set(values)];
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
-function normalizeUserId(value) {
-  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
-}
-
-function hashString(input) {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+function dateStamp() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     '"': "&quot;",
     "'": "&#039;"
-  }[char]));
+  }[character]));
 }
 
-function debounce(fn, wait) {
+function debounce(callback, wait) {
   let timer = null;
   return (...args) => {
     clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), wait);
+    timer = setTimeout(() => callback(...args), wait);
   };
 }
 
 function downloadJson(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  downloadText(JSON.stringify(data, null, 2), filename, "application/json;charset=utf-8");
+}
+
+function downloadText(text, filename, type) {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -1180,18 +2088,15 @@ function downloadJson(data, filename) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function showDialog(dialog) {
-  if (typeof dialog.showModal === "function") dialog.showModal();
-  else dialog.setAttribute("open", "open");
-}
-
-function toast(message, isError = false) {
-  dom.toast.textContent = message;
-  dom.toast.style.background = isError ? "#b23b3b" : "#17201b";
-  dom.toast.classList.add("show");
+function toast(message, type = "") {
+  const element = $("toast");
+  element.textContent = message;
+  element.className = `toast show ${type}`;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => dom.toast.classList.remove("show"), 2600);
+  toast.timer = setTimeout(() => {
+    element.className = "toast";
+  }, 3200);
 }

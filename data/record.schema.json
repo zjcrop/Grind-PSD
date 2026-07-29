@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zjcrop.github.io/Grind-PSD/data/record.schema.json",
+  "title": "Grind-PSD public measurement record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "standardId",
+    "id",
+    "user",
+    "grinder",
+    "sample",
+    "weightsGrams",
+    "totalG",
+    "license",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "3.0.0"
+    },
+    "standardId": {
+      "const": "grind-psd-sieve-v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^gpsd-[a-z0-9-]{8,72}$"
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{1,47}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 60
+        }
+      }
+    },
+    "grinder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brand", "model", "setting", "settingOrder", "color"],
+      "properties": {
+        "brand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "setting": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "settingOrder": {
+          "type": ["number", "null"]
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "doseG",
+        "bean",
+        "roastLevel",
+        "method",
+        "durationSec",
+        "sieveDevice",
+        "replicate"
+      ],
+      "properties": {
+        "doseG": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "bean": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "roastLevel": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "durationSec": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "sieveDevice": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "replicate": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        }
+      }
+    },
+    "weightsGrams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mesh18_retained_g",
+        "mesh24_retained_g",
+        "mesh35_retained_g",
+        "mesh60_retained_g",
+        "pan80_lt300_g"
+      ],
+      "properties": {
+        "mesh18_retained_g": {
+          "$ref": "#/$defs/weight"
+        },
+        "mesh24_retained_g": {
+          "$ref": "#/$defs/weight"
+        },
+        "mesh35_retained_g": {
+          "$ref": "#/$defs/weight"
+        },
+        "mesh60_retained_g": {
+          "$ref": "#/$defs/weight"
+        },
+        "pan80_lt300_g": {
+          "$ref": "#/$defs/weight"
+        }
+      }
+    },
+    "totalG": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 200
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "weight": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 200
+    }
+  }
+}

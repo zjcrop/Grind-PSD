@@ -1,4 +1,4 @@
-name: Deploy GitHub Pages
+name: Publish Grind-PSD to gh-pages
 
 on:
   push:
@@ -7,32 +7,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: grind-psd-pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out main
         uses: actions/checkout@v4
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Validate static application
+        run: |
+          node --check assets/psd-core.js
+          node --check assets/app.js
+          node tests/test_core.js
+          python3 -m json.tool data/standard.json > /dev/null
+          python3 -m json.tool data/record.schema.json > /dev/null
+          python3 -m json.tool data/database.json > /dev/null
+          python3 -m unittest discover -s tests -v
 
-      - name: Upload static site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
+      - name: Prepare publish branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          publish_dir="${RUNNER_TEMP}/grind-psd-pages"
+          if git ls-remote --exit-code --heads "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages > /dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$publish_dir"
+          else
+            mkdir -p "$publish_dir"
+            git -C "$publish_dir" init
+            git -C "$publish_dir" checkout -b gh-pages
+          fi
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='docs' \
+            --exclude='tests' \
+            --exclude='README.md' \
+            --exclude='CONTRIBUTING.md' \
+            --exclude='DATA_LICENSE.md' \
+            --exclude='LICENSE' \
+            ./ "$publish_dir/"
+          touch "$publish_dir/.nojekyll"
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish updated site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          publish_dir="${RUNNER_TEMP}/grind-psd-pages"
+          git -C "$publish_dir" config user.name "github-actions[bot]"
+          git -C "$publish_dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$publish_dir" add -A
+          if git -C "$publish_dir" diff --cached --quiet; then
+            echo "Published site is already current."
+            exit 0
+          fi
+          git -C "$publish_dir" commit -m "deploy: ${GITHUB_SHA}"
+          if git -C "$publish_dir" remote get-url origin > /dev/null 2>&1; then
+            git -C "$publish_dir" push origin gh-pages
+          else
+            git -C "$publish_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git -C "$publish_dir" push -u origin gh-pages
+          fi

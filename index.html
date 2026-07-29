@@ -1,265 +1,485 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Grind-PSD 咖啡研磨粒径分布统计与社区数据库工具">
-  <meta name="theme-color" content="#1f8a70">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Grind-PSD：按统一五段筛分标准记录、共享与对比咖啡研磨粒径分布。">
+  <meta name="theme-color" content="#14100d">
+  <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Grind-PSD">
-  <title>Grind-PSD | 咖啡粒径分布统计</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon.svg">
-  <link rel="stylesheet" href="assets/styles.css">
+  <title>Grind-PSD｜咖啡研磨粒径分布分析器</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <script src="./assets/psd-core.js" defer></script>
+  <script src="./assets/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>Grind-PSD</h1>
-      <p>咖啡研磨粒径分布统计 · 筛分法 · 社区数据库</p>
+    <div class="brand-block">
+      <div class="brand-mark" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div>
+        <h1>Grind-PSD <span class="version">v3.0</span></h1>
+        <p>粉径分布分析器 · 五段筛分法 · 本地优先 · 社区数据库</p>
+      </div>
     </div>
     <div class="top-actions">
-      <button class="primary" id="new-record-btn">新建记录</button>
-      <button id="sync-btn">同步社区库</button>
-      <button id="settings-btn">用户设置</button>
+      <button class="primary" id="newRecordBtn" type="button">＋ 新建称重记录</button>
+      <button class="ghost" id="syncBtn" type="button">同步社区库</button>
+      <button class="ghost" id="exportBtn" type="button">导出</button>
+      <button class="ghost" id="importBtn" type="button">导入</button>
+      <button class="ghost" id="installBtn" type="button">安装 App</button>
+      <button class="icon-button" id="settingsBtn" type="button" aria-label="用户与应用设置">⚙</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
   </header>
 
-  <nav class="tabs" aria-label="主功能">
-    <button class="tab is-active" data-tab="dashboard">当前记录</button>
-    <button class="tab" data-tab="local">本地记录</button>
-    <button class="tab" data-tab="community">社区数据库</button>
-    <button class="tab" data-tab="compare">对比分析</button>
-    <button class="tab" data-tab="standard">测量标准</button>
+  <div class="status-strip" id="statusStrip" role="status">
+    <span class="status-dot offline" id="networkDot"></span>
+    <span id="networkText">正在检查网络与社区数据库…</span>
+    <span class="status-spacer"></span>
+    <span id="activeUserText">本地用户：未设置</span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Grind-PSD 功能">
+    <button class="tab active" role="tab" aria-selected="true" data-tab="current" type="button">当前记录</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="history" type="button">历史记录</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="array3d" type="button">3D 阵列图</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="compare" type="button">对比分析</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="community" type="button">
+      社区数据库 <span class="count-badge" id="communityCountBadge">0</span>
+    </button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="standard" type="button">测量标准</button>
   </nav>
 
   <main>
-    <section id="tab-dashboard" class="tab-panel is-active">
-      <div class="layout two-col">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>记录概览</h2>
-            <div class="panel-actions">
-              <button id="submit-selected-btn">提交到社区数据库</button>
-              <button id="export-record-btn">导出记录</button>
-            </div>
+    <section id="tab-current" class="tab-panel active" role="tabpanel">
+      <div id="currentContent">
+        <div class="panel">
+          <div class="empty-state">
+            <div class="empty-icon">◌</div>
+            <strong>暂无称重记录</strong>
+            <span>点击“＋ 新建称重记录”，按原版三步流程开始。</span>
           </div>
-          <div id="record-summary" class="empty">暂无记录。点击右上角“新建记录”开始录入。</div>
-        </section>
-        <section class="panel">
-          <div class="panel-head">
-            <h2>指标</h2>
-          </div>
-          <div id="metric-grid" class="metric-grid"></div>
-        </section>
+        </div>
       </div>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>粒径分布</h2>
-          <select id="chart-unit">
-            <option value="percent">占比 %</option>
-            <option value="gram">重量 g</option>
-          </select>
-        </div>
-        <canvas id="distribution-chart" height="360"></canvas>
-      </section>
     </section>
 
-    <section id="tab-local" class="tab-panel">
-      <section class="panel">
+    <section id="tab-history" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel">
         <div class="panel-head">
-          <h2>本地记录</h2>
+          <h2>全部本地称重记录 <span class="hint">点击“查看”可回到当前记录</span></h2>
           <div class="panel-actions">
-            <button id="export-all-btn">导出本地库</button>
-            <button id="import-btn">导入 JSON</button>
-            <input id="import-file" type="file" accept=".json,application/json" hidden>
+            <button class="ghost small" id="exportCsvBtn" type="button">导出 CSV</button>
+            <button class="danger small" id="clearRecordsBtn" type="button">清空本地记录</button>
           </div>
         </div>
         <div class="filters">
-          <input id="local-search" type="search" placeholder="搜索品牌、型号、刻度、用户">
-          <select id="local-user-filter"></select>
+          <label>
+            <span>搜索</span>
+            <input type="search" id="historySearch" placeholder="品牌、型号、刻度、咖啡豆…">
+          </label>
+          <label>
+            <span>磨豆机</span>
+            <select id="historyGrinderFilter"><option value="">全部磨豆机</option></select>
+          </label>
+          <label>
+            <span>质量等级</span>
+            <select id="historyGradeFilter">
+              <option value="">全部等级</option>
+              <option value="A">A · 高可比</option>
+              <option value="B">B · 可比</option>
+              <option value="C">C · 谨慎比较</option>
+              <option value="D">D · 不建议入库</option>
+              <option value="U">U · 未评级</option>
+            </select>
+          </label>
         </div>
-        <div id="local-table"></div>
-      </section>
+        <div id="historyContent" class="table-wrap"></div>
+      </div>
     </section>
 
-    <section id="tab-community" class="tab-panel">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>社区数据库</h2>
+    <section id="tab-array3d" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head wrap">
+          <h2>研磨刻度 × 粉径 3D 阵列图
+            <span class="hint">X 轴=粒径档 · Y 轴=重量/占比 · Z 轴=研磨刻度（细→粗）</span>
+          </h2>
           <div class="panel-actions">
-            <button id="download-community-btn">下载社区数据</button>
-            <button id="import-community-selected-btn">导入选中记录</button>
+            <label class="compact-field">
+              <span>数据范围</span>
+              <select id="sel3dScope">
+                <option value="local">本地记录</option>
+                <option value="all">本地 + 社区</option>
+                <option value="community">仅社区</option>
+              </select>
+            </label>
+            <label class="compact-field">
+              <span>磨豆机</span>
+              <select id="sel3dGrinder"></select>
+            </label>
+            <label class="compact-field">
+              <span>纵轴</span>
+              <select id="sel3dUnit">
+                <option value="g">重量 g</option>
+                <option value="pct">占比 %</option>
+              </select>
+            </label>
           </div>
         </div>
-        <div class="filters">
-          <input id="community-search" type="search" placeholder="搜索用户、品牌、型号、刻度">
-          <select id="community-user-filter"></select>
+        <div class="canvas-scroll">
+          <canvas id="canvas3d" height="500" role="img" aria-label="研磨刻度与粒径分布三维阵列图"></canvas>
         </div>
-        <div id="community-status" class="note">尚未同步社区数据库。</div>
-        <div id="community-table"></div>
-      </section>
+        <p class="note" id="note3d">至少录入同一磨豆机的两个刻度后可形成阵列。</p>
+      </div>
     </section>
 
-    <section id="tab-compare" class="tab-panel">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>双记录对比</h2>
-          <select id="compare-unit">
-            <option value="percent">占比 %</option>
-            <option value="gram">重量 g</option>
-          </select>
-        </div>
-        <div class="layout two-col compare-pickers">
-          <label>
-            记录 A
-            <select id="compare-a"></select>
-          </label>
-          <label>
-            记录 B
-            <select id="compare-b"></select>
+    <section id="tab-compare" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head wrap">
+          <h2>双记录重叠对比 <span class="hint">重叠区域为混合色，高出部分保留对应记录颜色</span></h2>
+          <label class="compact-field">
+            <span>单位</span>
+            <select id="cmpUnit">
+              <option value="pct">占比 %（推荐）</option>
+              <option value="g">重量 g</option>
+            </select>
           </label>
         </div>
-        <canvas id="compare-chart" height="380"></canvas>
-        <div id="compare-metrics" class="compare-metrics"></div>
-      </section>
+        <div class="compare-selectors">
+          <label class="compare-card side-a">
+            <span class="compare-label">记录 A</span>
+            <select id="cmpRecordA"></select>
+          </label>
+          <button class="swap-button" id="swapCompareBtn" type="button" aria-label="交换两条对比记录">⇄</button>
+          <label class="compare-card side-b">
+            <span class="compare-label">记录 B</span>
+            <select id="cmpRecordB"></select>
+          </label>
+        </div>
+        <div class="canvas-scroll">
+          <canvas id="canvasCmp" height="420" role="img" aria-label="两条粒径分布重叠对比图"></canvas>
+        </div>
+        <div class="delta-grid" id="compareMetrics"></div>
+        <p class="note">投粉总量不同时必须使用“占比 %”比较。不同筛具、筛分时长或回收质量等级的数据只能作为探索性参考。</p>
+      </div>
+      <div class="panel">
+        <h2>两组刻度阵列并排对比</h2>
+        <div class="grid2">
+          <div class="mini-chart">
+            <h3 id="cmp3dTitleA">记录 A 所属磨豆机</h3>
+            <canvas id="canvasCmp3dA" height="350"></canvas>
+          </div>
+          <div class="mini-chart">
+            <h3 id="cmp3dTitleB">记录 B 所属磨豆机</h3>
+            <canvas id="canvasCmp3dB" height="350"></canvas>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section id="tab-standard" class="tab-panel">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Grind-PSD 标准体系</h2>
-          <button id="load-standard-btn">读取标准 JSON</button>
+    <section id="tab-community" class="tab-panel" role="tabpanel" hidden>
+      <div class="summary-grid">
+        <div class="summary-card"><span>公开用户</span><strong id="communityUserCount">0</strong></div>
+        <div class="summary-card"><span>公开记录</span><strong id="communityRecordCount">0</strong></div>
+        <div class="summary-card"><span>数据库更新时间</span><strong id="communityUpdatedAt">—</strong></div>
+        <div class="summary-card"><span>当前标准</span><strong>PSD-SIEVE v1</strong></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head wrap">
+          <h2>社区公开测量结果 <span class="hint" id="communityStatus">尚未同步</span></h2>
+          <div class="panel-actions">
+            <button class="primary small" id="communitySyncBtn" type="button">立即同步</button>
+            <button class="ghost small" id="communityImportBtn" type="button">导入所选</button>
+            <button class="ghost small" id="communityCompareBtn" type="button">对比所选 2 条</button>
+            <button class="ghost small" id="communityDownloadBtn" type="button">下载所选 JSON</button>
+            <button class="ghost small" id="communityCsvBtn" type="button">下载筛选结果 CSV</button>
+          </div>
         </div>
-        <div class="standard-copy">
-          <p>本工具使用固定筛层和字段名记录粒径分布。社区数据库只接收同一标准版本的数据，避免不同筛具、不同口径混合后失去比较意义。</p>
-          <table>
-            <thead>
-              <tr>
-                <th>字段</th>
-                <th>筛层</th>
-                <th>粒径区间</th>
-                <th>用途</th>
-              </tr>
-            </thead>
-            <tbody id="standard-table"></tbody>
-          </table>
-          <p class="note">D10 / D50 / D90 是基于五段筛分的近似插值结果，只适合横向比较，不等同于激光粒度仪或图像法的连续粒径曲线。</p>
+        <div class="filters community-filters">
+          <label>
+            <span>搜索</span>
+            <input type="search" id="communitySearch" placeholder="用户、品牌、型号、刻度…">
+          </label>
+          <label>
+            <span>用户 ID</span>
+            <select id="communityUserFilter"><option value="">全部用户</option></select>
+          </label>
+          <label>
+            <span>品牌</span>
+            <select id="communityBrandFilter"><option value="">全部品牌</option></select>
+          </label>
+          <label>
+            <span>质量等级</span>
+            <select id="communityGradeFilter">
+              <option value="">全部等级</option>
+              <option value="A">A · 高可比</option>
+              <option value="B">B · 可比</option>
+              <option value="C">C · 谨慎比较</option>
+            </select>
+          </label>
         </div>
-      </section>
+        <div id="communityContent" class="table-wrap"></div>
+      </div>
+      <div class="panel callout">
+        <div>
+          <h2>提交自己的标准记录</h2>
+          <p>先在本地保存记录，再从“当前记录”点击“提交到社区库”。网页不会保存 GitHub 密钥，而是生成可审计的 Issue；自动工作流校验后写入总库及独立用户文件。</p>
+        </div>
+        <button class="primary" id="communitySubmitBtn" type="button">提交当前记录</button>
+      </div>
+    </section>
+
+    <section id="tab-standard" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel standard-hero">
+        <div>
+          <span class="eyebrow">固定比较口径</span>
+          <h2>Grind-PSD 五段筛分标准 v1</h2>
+          <p>本项目沿用你原始工具的 18 / 24 / 35 / 60 目标签与五个标称粒径区间。公开数据库以区间边界为判断依据，不将“目数”自动换算成其他国家的标准筛孔径。</p>
+        </div>
+        <div class="standard-id"><span>standardId</span><code>grind-psd-sieve-v1</code></div>
+      </div>
+      <div class="grid2">
+        <div class="panel">
+          <h2>筛层定义</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>记录档</th><th>标称区间</th><th>数据库字段</th></tr></thead>
+              <tbody id="standardRows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>质量等级</h2>
+          <div class="grade-list">
+            <div><span class="grade grade-a">A</span><strong>高可比</strong><p>质量回收误差 ≤2%，且筛具与时长记录完整。</p></div>
+            <div><span class="grade grade-b">B</span><strong>可比</strong><p>质量回收误差 ≤5%。</p></div>
+            <div><span class="grade grade-c">C</span><strong>谨慎比较</strong><p>质量回收误差 &gt;5% 且 ≤10%。</p></div>
+            <div><span class="grade grade-d">D</span><strong>不建议入库</strong><p>质量回收误差 &gt;10%。</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>推荐操作流程</h2>
+        <ol class="protocol-steps">
+          <li><strong>准备与清洁</strong><span>清理磨豆机、筛具和接粉盘；避免上一批残粉污染。</span></li>
+          <li><strong>记录投粉</strong><span>建议 10.00 g 或 15.00 g，使用 0.01 g 分辨率电子秤。</span></li>
+          <li><strong>固定方法</strong><span>保持同一筛具、相同动作或设备、相同时长；不同方法不得直接并入同一趋势线。</span></li>
+          <li><strong>逐层称重</strong><span>依次记录五档筛上/底盘重量，不以百分比代替原始克重。</span></li>
+          <li><strong>核对回收率</strong><span>检查五档合计与投粉量的差异，并根据质量等级决定是否公开提交。</span></li>
+          <li><strong>重复测量</strong><span>正式比较建议每个刻度至少 3 次独立重复，保留每次原始记录。</span></li>
+        </ol>
+        <p class="note source-note">
+          技术边界：Grind-PSD 是社区筛分比较标准，不等同于激光衍射或图像法粒径分布；筛具技术要求可参考
+          <a href="https://www.iso.org/standard/62410.html" target="_blank" rel="noopener noreferrer">ISO 3310-1:2016</a>
+          与
+          <a href="https://store.astm.org/e0011-24.html" target="_blank" rel="noopener noreferrer">ASTM E11-24</a>。
+        </p>
+      </div>
     </section>
   </main>
 
-  <dialog id="record-dialog" class="modal">
-    <form method="dialog">
-      <div class="modal-head">
-        <div>
-          <h2>新建筛分记录</h2>
-          <p>按统一字段填写，同一套筛具、同一摇筛方式的数据才可直接比较。</p>
-        </div>
-        <button value="cancel" class="icon-btn" aria-label="关闭">×</button>
-      </div>
-    </form>
-    <div class="form-grid">
-      <label>
-        用户 ID
-        <input id="record-user-id" type="text" autocomplete="off">
-      </label>
-      <label>
-        昵称
-        <input id="record-user-name" type="text" autocomplete="off">
-      </label>
-      <label>
-        品牌
-        <input id="record-brand" type="text" list="brand-list" autocomplete="off" placeholder="例如 Timemore">
-      </label>
-      <label>
-        型号
-        <input id="record-model" type="text" list="model-list" autocomplete="off" placeholder="例如 C3">
-      </label>
-      <label>
-        研磨刻度
-        <input id="record-setting" type="text" autocomplete="off" placeholder="例如 18 / 2圈+6格">
-      </label>
-      <label>
-        投粉量 g
-        <input id="record-dose" type="number" min="0" step="0.01" placeholder="例如 10.00">
-      </label>
-      <label>
-        咖啡豆信息
-        <input id="record-bean" type="text" autocomplete="off" placeholder="可选：产地/处理法/烘焙度">
-      </label>
-      <label>
-        摇筛方式
-        <input id="record-method" type="text" autocomplete="off" value="手动摇筛 60 秒">
-      </label>
-    </div>
-    <datalist id="brand-list"></datalist>
-    <datalist id="model-list"></datalist>
-    <div class="weighing">
-      <div class="weigh-head">
-        <span>筛层</span>
-        <span>筛上重量 g</span>
-      </div>
-      <div id="weight-inputs"></div>
-      <div class="total-row">
-        <span>筛分总重</span>
-        <strong id="weight-total">0.00 g</strong>
-      </div>
-    </div>
-    <label class="full-label">
-      备注
-      <textarea id="record-notes" rows="3" placeholder="可记录筛具、摇筛力度、静电、结团、拍照方法等影响因素"></textarea>
-    </label>
-    <div class="modal-actions">
-      <button id="same-grinder-btn">沿用上次磨豆机</button>
-      <button id="save-record-btn" class="primary">保存记录</button>
-    </div>
-  </dialog>
+  <div class="overlay hidden" id="wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+    <div class="modal wizard-modal">
+      <button class="modal-close" data-close="wizard" type="button" aria-label="关闭">×</button>
 
-  <dialog id="settings-dialog" class="modal small">
-    <form method="dialog">
-      <div class="modal-head">
-        <div>
-          <h2>用户设置</h2>
-          <p>社区数据库按用户 ID 独立归集记录。</p>
+      <section class="wizard-step" id="wizardStep1">
+        <div class="step-header">
+          <div>
+            <h2 id="wizardTitle">选择磨豆机</h2>
+            <p>步骤 1 / 3 · 品牌、型号与图表颜色</p>
+          </div>
+          <div class="step-progress"><span class="on"></span><span></span><span></span></div>
         </div>
-        <button value="cancel" class="icon-btn" aria-label="关闭">×</button>
-      </div>
-    </form>
-    <label>
-      用户 ID
-      <input id="settings-user-id" type="text" autocomplete="off">
-    </label>
-    <label>
-      昵称
-      <input id="settings-user-name" type="text" autocomplete="off">
-    </label>
-    <div class="modal-actions">
-      <button id="save-settings-btn" class="primary">保存设置</button>
-    </div>
-  </dialog>
-
-  <dialog id="submit-dialog" class="modal">
-    <form method="dialog">
-      <div class="modal-head">
-        <div>
-          <h2>提交到社区数据库</h2>
-          <p>将下方标准 JSON 提交为 GitHub Issue，仓库工作流校验后写入数据库。</p>
+        <div class="user-chip">记录归属：<strong id="wizardUserLabel">—</strong></div>
+        <div class="field">
+          <label>品牌 <em>必填</em></label>
+          <div class="tagwrap" id="brandTags"></div>
+          <div class="addrow">
+            <input type="text" id="newBrandInput" maxlength="80" placeholder="输入新品牌，如：泰摩 / 1Zpresso / Mahlkönig">
+            <button class="ghost" id="addBrandBtn" type="button">添加品牌</button>
+          </div>
         </div>
-        <button value="cancel" class="icon-btn" aria-label="关闭">×</button>
-      </div>
-    </form>
-    <textarea id="submit-json" rows="14" readonly></textarea>
-    <div class="modal-actions">
-      <button id="copy-submit-json-btn">复制 JSON</button>
-      <button id="open-issue-btn" class="primary">打开 GitHub 提交页</button>
-    </div>
-    <p class="note">如果浏览器拦截了过长链接，可手动新建 Issue，并把 JSON 放在 BEGIN/END 标记之间。</p>
-  </dialog>
+        <div class="field" id="modelField" hidden>
+          <label>型号 <em>必填</em></label>
+          <div class="tagwrap" id="modelTags"></div>
+          <div class="addrow">
+            <input type="text" id="newModelInput" maxlength="80" placeholder="输入型号，如：栗子 C3 / K-Ultra / EK43">
+            <button class="ghost" id="addModelBtn" type="button">添加型号</button>
+          </div>
+        </div>
+        <div class="field" id="colorField" hidden>
+          <label>该产品专属颜色</label>
+          <div class="row">
+            <input type="color" id="productColor" value="#d98e32">
+            <span class="note inline-note">保存后，该产品在单条、3D 和对比图中使用同一颜色。</span>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost left" id="sameAsLastBtn" type="button">⚡ 同款继续称重</button>
+          <button class="ghost" data-close="wizard" type="button">取消</button>
+          <button class="primary" id="wizardNext1" type="button" disabled>下一步：刻度与条件 →</button>
+        </div>
+      </section>
 
-  <div id="toast" role="status" aria-live="polite"></div>
-  <script src="assets/app.js"></script>
+      <section class="wizard-step" id="wizardStep2" hidden>
+        <div class="step-header">
+          <div>
+            <h2>刻度与测量条件</h2>
+            <p>步骤 2 / 3 · <span id="step2GrinderLabel"></span></p>
+          </div>
+          <div class="step-progress"><span class="on"></span><span class="on"></span><span></span></div>
+        </div>
+        <div class="form-grid">
+          <label class="field full">
+            <span>研磨刻度 <em>必填</em></span>
+            <input type="text" id="dialInput" maxlength="80" placeholder="如：18 / 3.5 / 2圈+5格">
+            <span class="field-help" id="dialHistory"></span>
+          </label>
+          <label class="field">
+            <span>由细到粗排序值 <i>可选</i></span>
+            <input type="number" id="dialOrderInput" step="0.001" inputmode="decimal" placeholder="如：18">
+            <span class="field-help">用于 3D 阵列排序；不填则尝试从刻度文字提取数字。</span>
+          </label>
+          <label class="field">
+            <span>投粉量 g <em>公开必填</em></span>
+            <input type="number" id="doseInput" min="1" max="200" step="0.01" inputmode="decimal" value="10.00">
+          </label>
+          <label class="field">
+            <span>咖啡豆/样品 <i>可选</i></span>
+            <input type="text" id="beanInput" maxlength="120" placeholder="如：水洗浅烘埃塞">
+          </label>
+          <label class="field">
+            <span>烘焙度 <i>可选</i></span>
+            <select id="roastInput">
+              <option value="">未记录</option>
+              <option value="极浅烘">极浅烘</option>
+              <option value="浅烘">浅烘</option>
+              <option value="中浅烘">中浅烘</option>
+              <option value="中烘">中烘</option>
+              <option value="中深烘">中深烘</option>
+              <option value="深烘">深烘</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>筛分时长 s <em>公开必填</em></span>
+            <input type="number" id="durationInput" min="1" max="3600" step="1" inputmode="numeric" value="60">
+          </label>
+          <label class="field">
+            <span>筛具/装置 <em>公开必填</em></span>
+            <input type="text" id="deviceInput" maxlength="80" value="Grind-PSD 五段筛具" placeholder="筛具品牌、型号或自制装置">
+          </label>
+          <label class="field">
+            <span>筛分方法</span>
+            <input type="text" id="methodInput" maxlength="120" value="手动水平往复筛分" placeholder="动作、设备与振幅说明">
+          </label>
+          <label class="field">
+            <span>独立重复序号</span>
+            <input type="number" id="replicateInput" min="1" max="99" step="1" inputmode="numeric" value="1">
+          </label>
+          <label class="field full">
+            <span>备注 <i>可选</i></span>
+            <textarea id="notesInput" maxlength="500" rows="3" placeholder="静电处理、RDT、筛分异常、环境条件等"></textarea>
+          </label>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost" id="wizardBack2" type="button">← 上一步</button>
+          <button class="primary" id="wizardNext2" type="button">确定，进入称重 →</button>
+        </div>
+      </section>
+
+      <section class="wizard-step" id="wizardStep3" hidden>
+        <div class="step-header">
+          <div>
+            <h2>称重记录</h2>
+            <p>步骤 3 / 3 · <span id="step3GrinderLabel"></span></p>
+          </div>
+          <div class="step-progress"><span class="on"></span><span class="on"></span><span class="on"></span></div>
+        </div>
+        <div class="weighing-table">
+          <div class="weighing-head"><span>筛分档 / 标称粒径区间</span><span>筛上粉重 g</span></div>
+          <div id="weighRows"></div>
+        </div>
+        <div class="totalbar">
+          <div><span>五档合计</span><strong id="weightTotal">0.00 g</strong></div>
+          <div><span>质量回收率</span><strong id="recoveryTotal">—</strong></div>
+          <div><span>预估等级</span><strong id="qualityPreview">U · 未评级</strong></div>
+        </div>
+        <p class="validation-message" id="weightValidation"></p>
+        <div class="modal-foot">
+          <button class="ghost" id="wizardBack3" type="button">← 上一步</button>
+          <button class="primary" id="saveRecordBtn" type="button">✓ 保存记录并生成图表</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal compact-modal">
+      <button class="modal-close" data-close="settingsModal" type="button" aria-label="关闭">×</button>
+      <h2 id="settingsTitle">用户与本地设置</h2>
+      <p class="modal-intro">用户 ID 用于公开数据库的独立文件名。它是公开命名空间，不是登录凭据；提交者 GitHub 账号会单独记录用于审计。</p>
+      <label class="field">
+        <span>公开用户 ID <em>必填</em></span>
+        <input type="text" id="settingsUserId" maxlength="48" autocomplete="username" placeholder="2–48 位小写字母、数字、_ 或 -">
+      </label>
+      <label class="field">
+        <span>显示名称 <i>可选</i></span>
+        <input type="text" id="settingsUserName" maxlength="60" placeholder="可使用中文，仅用于展示">
+      </label>
+      <label class="check-row">
+        <input type="checkbox" id="autoSyncInput" checked>
+        <span>联网时自动同步社区数据库</span>
+      </label>
+      <div class="modal-foot">
+        <button class="ghost" data-close="settingsModal" type="button">取消</button>
+        <button class="primary" id="saveSettingsBtn" type="button">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="submitModal" role="dialog" aria-modal="true" aria-labelledby="submitTitle">
+    <div class="modal submit-modal">
+      <button class="modal-close" data-close="submitModal" type="button" aria-label="关闭">×</button>
+      <h2 id="submitTitle">提交到社区数据库</h2>
+      <p class="modal-intro">确认后将打开 GitHub Issue。仓库工作流会重新校验原始克重、回收率和标准 ID，再写入总库与用户独立文件。</p>
+      <div id="submitChecklist" class="checklist"></div>
+      <label class="check-row license-row">
+        <input type="checkbox" id="licenseConsent">
+        <span>我确认该记录由我提交，并同意以
+          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>
+          许可公开测量数据。
+        </span>
+      </label>
+      <label class="field">
+        <span>待提交标准 JSON</span>
+        <textarea id="submitJson" rows="11" readonly spellcheck="false"></textarea>
+      </label>
+      <div class="modal-foot">
+        <button class="ghost left" id="copySubmitBtn" type="button">复制 JSON</button>
+        <button class="ghost" data-close="submitModal" type="button">取消</button>
+        <button class="primary" id="openIssueBtn" type="button" disabled>打开 GitHub 并提交 →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="installModal" role="dialog" aria-modal="true" aria-labelledby="installTitle">
+    <div class="modal compact-modal">
+      <button class="modal-close" data-close="installModal" type="button" aria-label="关闭">×</button>
+      <h2 id="installTitle">安装 Grind-PSD App</h2>
+      <div id="installInstructions" class="install-instructions"></div>
+      <div class="modal-foot">
+        <button class="primary" data-close="installModal" type="button">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <noscript>Grind-PSD 需要 JavaScript 才能进行本地记录、绘图与数据库同步。</noscript>
 </body>
 </html>

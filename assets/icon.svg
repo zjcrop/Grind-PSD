@@ -1,10 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Grind-PSD">
-  <rect width="512" height="512" rx="96" fill="#1f8a70"/>
-  <circle cx="168" cy="188" r="56" fill="#f7f8f6" opacity=".95"/>
-  <circle cx="308" cy="154" r="42" fill="#f7f8f6" opacity=".9"/>
-  <circle cx="352" cy="280" r="66" fill="#f7f8f6" opacity=".95"/>
-  <circle cx="206" cy="332" r="34" fill="#f7f8f6" opacity=".82"/>
-  <path d="M120 398h272" stroke="#f7f8f6" stroke-width="34" stroke-linecap="round"/>
-  <path d="M140 398c42-64 192-64 232 0" fill="none" stroke="#13624f" stroke-width="18" stroke-linecap="round"/>
-  <text x="256" y="452" fill="#f7f8f6" font-family="Arial, sans-serif" font-size="54" font-weight="700" text-anchor="middle">PSD</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f2114"/>
+      <stop offset="1" stop-color="#14100d"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0ad52"/>
+      <stop offset="1" stop-color="#a95f17"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <rect x="38" y="38" width="436" height="436" rx="78" fill="none" stroke="#5a4025" stroke-width="8"/>
+  <g fill="url(#bar)">
+    <rect x="92" y="290" width="48" height="92" rx="16"/>
+    <rect x="162" y="222" width="48" height="160" rx="16"/>
+    <rect x="232" y="136" width="48" height="246" rx="16"/>
+    <rect x="302" y="196" width="48" height="186" rx="16"/>
+    <rect x="372" y="264" width="48" height="118" rx="16"/>
+  </g>
+  <g fill="#efe6da">
+    <circle cx="116" cy="250" r="12" opacity=".58"/>
+    <circle cx="186" cy="180" r="16" opacity=".72"/>
+    <circle cx="256" cy="94" r="20"/>
+    <circle cx="326" cy="151" r="15" opacity=".8"/>
+    <circle cx="396" cy="226" r="11" opacity=".62"/>
+  </g>
+  <path d="M82 407h348" stroke="#efe6da" stroke-width="13" stroke-linecap="round" opacity=".88"/>
+  <text x="256" y="452" fill="#efe6da" font-family="Arial, sans-serif" font-size="48" font-weight="700" text-anchor="middle">PSD</text>
 </svg>
