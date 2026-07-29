@@ -1,0 +1,21 @@
+{
+  "name": "Grind-PSD 咖啡粒径分布统计",
+  "short_name": "Grind-PSD",
+  "description": "按照统一筛分标准记录、比较和共享咖啡研磨粒径分布结果。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f8f6",
+  "theme_color": "#1f8a70",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
