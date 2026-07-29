@@ -1,0 +1,59 @@
+{
+  "standardId": "grind-psd-sieve-v1",
+  "schemaVersion": "2.0.0",
+  "title": "Grind-PSD 咖啡研磨粒径筛分标准 v1",
+  "measurementMethod": "manual_sieve_fraction",
+  "unit": "gram",
+  "principle": "同一记录必须按 18 / 24 / 35 / 60 目和 80 目底盘极细粉五段记录筛上重量。社区比较优先使用占比，减少投粉量差异。",
+  "bins": [
+    {
+      "id": "mesh18_retained_g",
+      "label": "18 目筛上",
+      "nominalRangeUm": ">=1000",
+      "description": "粗粉段，记录留在 18 目筛上的重量。"
+    },
+    {
+      "id": "mesh24_retained_g",
+      "label": "24 目筛上",
+      "nominalRangeUm": "800-1000",
+      "description": "粗中段，记录通过 18 目但留在 24 目筛上的重量。"
+    },
+    {
+      "id": "mesh35_retained_g",
+      "label": "35 目筛上",
+      "nominalRangeUm": "500-800",
+      "description": "主体中粉段，记录通过 24 目但留在 35 目筛上的重量。"
+    },
+    {
+      "id": "mesh60_retained_g",
+      "label": "60 目筛上",
+      "nominalRangeUm": "300-500",
+      "description": "细粉段，记录通过 35 目但留在 60 目筛上的重量。"
+    },
+    {
+      "id": "pan80_lt300_g",
+      "label": "80 目底盘极细粉",
+      "nominalRangeUm": "<300",
+      "description": "极细粉段，记录通过上方筛层并落入底盘的重量。"
+    }
+  ],
+  "requiredRecordFields": [
+    "standardId",
+    "user.id",
+    "grinder.brand",
+    "grinder.model",
+    "grinder.setting",
+    "weightsGrams.mesh18_retained_g",
+    "weightsGrams.mesh24_retained_g",
+    "weightsGrams.mesh35_retained_g",
+    "weightsGrams.mesh60_retained_g",
+    "weightsGrams.pan80_lt300_g",
+    "totalG",
+    "createdAt"
+  ],
+  "qualityNotes": [
+    "筛分总重与投粉量偏差超过 8% 时，应复核称量、静电吸附和漏粉。",
+    "D10 / D50 / D90 为五段筛分近似插值，只用于同标准数据横向比较。",
+    "如筛具实际孔径与本标准标称孔径不同，应在 notes 或 sample.method 中注明。"
+  ]
+}
