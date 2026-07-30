@@ -1,19 +1,14 @@
 {
   "schemaVersion": "3.0.0",
   "standardId": "grind-psd-sieve-v1",
-  "updatedAt": "2026-07-30T02:29:17.373132Z",
-  "userCount": 1,
-  "recordCount": 2,
-  "users": {
-    "zj_crop-163-com": {
-      "displayName": "庄稼",
-      "githubLogin": "zjcrop",
-      "file": "data/users/zj_crop-163-com.json",
-      "count": 2,
-      "registeredAt": "2026-07-30T02:23:23.223242Z",
-      "updatedAt": "2026-07-30T02:29:17.373139Z"
-    }
+  "user": {
+    "id": "zj_crop-163-com",
+    "name": "庄稼"
   },
+  "ownerGithubLogin": "zjcrop",
+  "registeredAt": "2026-07-30T02:23:23.223242Z",
+  "updatedAt": "2026-07-30T02:29:17.373526Z",
+  "recordCount": 2,
   "records": [
     {
       "schemaVersion": "3.0.0",

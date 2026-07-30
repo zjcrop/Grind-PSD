@@ -1,20 +1,20 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v4.0.0";
-const DATA_CACHE = "grind-psd-data-v4.0.0";
+const SHELL_CACHE = "grind-psd-shell-v5.1.0";
+const DATA_CACHE = "grind-psd-data-v5.1.0";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./assets/psd-core.js",
-  "./assets/app-v4.js",
-  "./assets/styles-v4.css",
+  "./assets/app-v5.js",
+  "./assets/styles-v5.css",
   "./assets/icon.svg",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/apple-touch-icon.png",
   "./manifest.webmanifest",
   "./data/standard.json",
-  "./data/record.schema.json"
+  "./data/record.schema.json",
 ];
 
 self.addEventListener("install", (event) => {
@@ -55,9 +55,10 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (
-    url.pathname.endsWith("/assets/app-v4.js") ||
+    url.pathname.endsWith("/assets/app-v5.js") ||
     url.pathname.endsWith("/assets/psd-core.js") ||
-    url.pathname.endsWith("/assets/styles-v4.css") ||
+    url.pathname.endsWith("/assets/styles-v5.css") ||
+    url.pathname.endsWith("/data/app-config.json") ||
     url.pathname.endsWith("/manifest.webmanifest")
   ) {
     event.respondWith(networkFirst(request, SHELL_CACHE));
