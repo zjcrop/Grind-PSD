@@ -2762,6 +2762,76 @@ main {
   color: #7ec8ff;
 }
 
+.measurement-home {
+  width: 100%;
+}
+
+.measurement-hero {
+  display: grid;
+  justify-items: center;
+  min-height: min(62vh, 620px);
+  padding: clamp(34px, 8vh, 86px) 20px 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 50% 8%, rgba(31, 111, 191, .22), transparent 44%),
+    #02060b;
+  text-align: center;
+}
+
+.measurement-hero h2 {
+  margin: 8px 0 10px;
+  color: #f4f8fc;
+  font-size: clamp(24px, 5vw, 42px);
+}
+
+.measurement-hero p {
+  max-width: 620px;
+  margin: 0 0 28px;
+  color: #a9b9c9;
+  line-height: 1.75;
+}
+
+.measurement-start-button {
+  width: min(520px, 92%);
+  min-height: clamp(76px, 15vw, 118px);
+  border-radius: 24px;
+  font-size: clamp(22px, 5vw, 38px);
+  font-weight: 800;
+  box-shadow: 0 18px 50px rgba(24, 114, 204, .32);
+}
+
+.measurement-home.is-active .measurement-hero {
+  display: none;
+}
+
+.measurement-wizard {
+  width: 100%;
+}
+
+.measurement-wizard .wizard-modal {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  border-color: #173c60;
+  background: #050b12;
+  box-shadow: none;
+}
+
+.record-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+  color: #a9b9c9;
+  font-size: 12px;
+}
+
+.record-detail-meta strong {
+  color: #f4f8fc;
+}
+
 @media (max-width: 680px) {
   .topbar {
     gap: 10px;
@@ -2829,6 +2899,16 @@ main {
 
   .grade-list p {
     overflow-wrap: anywhere;
+  }
+
+  .measurement-hero {
+    min-height: 56vh;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .measurement-wizard .wizard-modal {
+    padding: 16px 12px;
   }
 }
 

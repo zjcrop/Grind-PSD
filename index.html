@@ -64,10 +64,10 @@
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Grind-PSD 功能">
-    <button class="tab active" role="tab" aria-selected="true" data-tab="current" type="button">当前记录</button>
+    <button class="tab active" role="tab" aria-selected="true" data-tab="measure" type="button">称测</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="current" type="button">当前记录</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="history" type="button">历史记录</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="array3d" type="button">记录详情</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="compare" type="button">对比分析</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="community" type="button" hidden>
       社区数据库 <span class="count-badge" id="communityCountBadge">0</span>
     </button>
@@ -78,7 +78,19 @@
   </nav>
 
   <main>
-    <section id="tab-current" class="tab-panel active" role="tabpanel">
+    <section id="tab-measure" class="tab-panel active" role="tabpanel">
+      <div class="measurement-home" id="measurementHome">
+        <div class="measurement-hero">
+          <span class="eyebrow">Grind-PSD 五筛六分段</span>
+          <h2>开始一次新的称测</h2>
+          <p>按设备、刻度与六个筛分档依次录入。保存完成后会停留在本页，方便连续称测。</p>
+          <button class="primary measurement-start-button" id="measurementStartBtn" type="button">＋ 开始称测</button>
+        </div>
+        <div id="measurementWorkspace"></div>
+      </div>
+    </section>
+
+    <section id="tab-current" class="tab-panel" role="tabpanel" hidden>
       <div id="currentContent">
         <div class="panel">
           <div class="empty-state">
@@ -143,7 +155,7 @@
           </label>
         </div>
         <div class="selection-toolbar">
-          <span id="historySelectionStatus">已选择 0 / 10 条（至少选择 2 条）</span>
+          <span id="historySelectionStatus">已选择 0 / 10 条</span>
           <div class="panel-actions">
             <button class="ghost small" id="clearHistorySelectionBtn" type="button">清除选择</button>
             <button class="ghost small" id="selectAllHistoryBtn" type="button">全选</button>
@@ -157,51 +169,30 @@
     <section id="tab-array3d" class="tab-panel" role="tabpanel" hidden>
       <div class="panel">
         <div class="panel-head wrap">
-          <h2>记录详情
-            <span class="hint">X 轴=粒径档 · Y 轴=重量/占比 · Z 轴=研磨刻度（细→粗）</span>
-          </h2>
+          <h2 id="recordDetailTitle">记录详情</h2>
           <div class="panel-actions">
             <label class="compact-field">
-              <span>数据范围</span>
-              <select id="sel3dScope">
-                <option value="local">本地记录</option>
-              </select>
-            </label>
-            <label class="compact-field">
-              <span>主阵列</span>
-              <select id="sel3dGrinder"></select>
-            </label>
-            <label class="compact-field">
-              <span>叠加阵列</span>
-              <select id="sel3dOverlay">
-                <option value="">不叠加</option>
-              </select>
-            </label>
-            <label class="compact-field">
               <span>纵轴</span>
-              <select id="sel3dUnit">
+              <select id="recordDetailUnit">
                 <option value="g">重量 g</option>
                 <option value="pct">占比 %</option>
               </select>
             </label>
+            <button class="ghost small" id="editCompareSelectionBtn" type="button">返回记录选择</button>
           </div>
         </div>
-        <div class="canvas-scroll">
-          <canvas id="canvas3d" role="img" aria-label="研磨刻度与粒径分布三维叠加阵列图"></canvas>
+        <div id="singleRecordDetail">
+          <div id="singleRecordMeta" class="record-detail-meta"></div>
+          <div class="canvas-scroll">
+            <canvas id="canvasRecordDetail" role="img" aria-label="单条称测记录粒径分布柱状图"></canvas>
+          </div>
+          <p class="note" id="singleRecordNote">从“当前记录”或“历史记录”中查看一条记录。</p>
         </div>
-        <p class="note" id="note3d">至少录入同一磨豆机的两个刻度后可形成阵列。</p>
-      </div>
-    </section>
-
-    <section id="tab-compare" class="tab-panel" role="tabpanel" hidden>
-      <div class="panel">
-        <div class="panel-head wrap">
-          <h2>多设备 / 多测次 3D 对比 <span class="hint">每条测次沿 Z 轴深度独立并列，最多 10 条</span></h2>
-          <button class="ghost small" id="editCompareSelectionBtn" type="button">返回记录选择</button>
+        <div id="multiRecordDetail" hidden>
+          <div id="multiCompareLegend" class="multi-compare-legend"></div>
+          <div class="canvas-scroll"><canvas id="canvasCmpMulti3d" aria-label="最多十条测次沿 Z 轴并列的三维柱状图"></canvas></div>
+          <p class="note" id="multiCompareNote">请到“历史记录”中选择 2–10 条记录。</p>
         </div>
-        <div id="multiCompareLegend" class="multi-compare-legend"></div>
-        <div class="canvas-scroll"><canvas id="canvasCmpMulti3d" aria-label="最多十条测次沿 Z 轴并列的三维柱状图"></canvas></div>
-        <p class="note" id="multiCompareNote">请到“历史记录”中选择 2–10 条记录。</p>
       </div>
     </section>
 
@@ -493,9 +484,9 @@
     </div>
   </div>
 
-  <div class="overlay hidden" id="wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+  <div class="measurement-wizard hidden" id="wizard" aria-labelledby="wizardTitle">
     <div class="modal wizard-modal">
-      <button class="modal-close" data-close="wizard" type="button" aria-label="关闭">×</button>
+      <button class="modal-close" id="wizardCloseBtn" type="button" aria-label="关闭">×</button>
 
       <section class="wizard-step" id="wizardStep1">
         <div class="step-header">
@@ -531,7 +522,7 @@
         </div>
         <div class="modal-foot">
           <button class="ghost left" id="sameAsLastBtn" type="button">⚡ 同款继续称重</button>
-          <button class="ghost" data-close="wizard" type="button">退出本轮</button>
+          <button class="ghost" id="wizardExit1" type="button">退出本轮</button>
           <button class="primary" id="wizardNext1" type="button" disabled>下一步：选择刻度 →</button>
         </div>
       </section>
@@ -648,7 +639,7 @@
     <div class="modal compact-modal">
       <button class="modal-close" data-close="settingsModal" type="button" aria-label="关闭">×</button>
       <h2 id="settingsTitle">账号、数据与 App</h2>
-      <p class="modal-intro">Grind-PSD 1.0 正式版 · 五筛六分段粉径分布分析器。本地记录优先保存，登录后可校验并同步至个人云端空间。</p>
+      <p class="modal-intro">Grind-PSD 1.2 · 五筛六分段粉径分布分析器。本地记录优先保存，登录后可校验并同步至个人云端空间。</p>
       <label class="field">
         <span>当前用户 ID</span>
         <input type="text" id="settingsUserId" maxlength="48" readonly>
@@ -663,7 +654,7 @@
       </label>
       <div class="app-about">
         <strong>软件信息</strong>
-        <span>版本：1.0 正式版</span>
+        <span>版本：1.2</span>
         <span>测量标准：Grind-PSD 五筛六分段标准 v2</span>
         <span>数据策略：本地优先 / Supabase 账号云端同步</span>
       </div>

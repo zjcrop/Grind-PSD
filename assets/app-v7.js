@@ -1,10 +1,10 @@
 "use strict";
 
-// Grind-PSD v7 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.2 application shell and Supabase-aware interaction state machine.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.2";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -40,7 +40,7 @@ const state = {
   selectedCommunityIds: new Set(),
   selectedHistoryIds: new Set(),
   wizard: freshWizard(),
-  activeTab: "current",
+  activeTab: "measure",
   deferredInstallPrompt: null,
   migrationMessage: "",
   authMode: "login",
@@ -63,6 +63,7 @@ async function init() {
   state.store = loadStore();
   buildStandardRows();
   buildWeighRows();
+  prepareMeasurementPage();
   bindEvents();
   if (Cloud) await Cloud.init();
   if (Cloud?.isSignedIn()) await restoreCloudSession();
@@ -457,6 +458,7 @@ function bindEvents() {
   });
 
   $("newRecordBtn").addEventListener("click", startMeasurementFlow);
+  $("measurementStartBtn").addEventListener("click", startMeasurementFlow);
   $("uploadCloudBtn").addEventListener("click", () => {
     closeActionMenu();
     uploadAllRecordsToCloud();
@@ -523,13 +525,7 @@ function bindEvents() {
   $("exportCsvBtn").addEventListener("click", () => exportRecordsCsv(getFilteredHistoryRecords(), "grind-psd-local"));
   $("clearRecordsBtn").addEventListener("click", clearLocalRecords);
 
-  $("sel3dScope").addEventListener("change", () => {
-    refresh3dGrinderOptions();
-    render3D();
-  });
-  $("sel3dGrinder").addEventListener("change", render3D);
-  $("sel3dOverlay").addEventListener("change", render3D);
-  $("sel3dUnit").addEventListener("change", render3D);
+  $("recordDetailUnit").addEventListener("change", renderRecordDetail);
 
   ["communitySearch", "communityUserFilter", "communityBrandFilter", "communityGradeFilter"].forEach((id) => {
     $(id).addEventListener(id === "communitySearch" ? "input" : "change", renderCommunity);
@@ -549,6 +545,8 @@ function bindEvents() {
   $("wizardBack3").addEventListener("click", () => goWizardStep(2));
   $("wizardExit2").addEventListener("click", exitMeasurementFlow);
   $("wizardExit3").addEventListener("click", exitMeasurementFlow);
+  $("wizardExit1").addEventListener("click", exitMeasurementFlow);
+  $("wizardCloseBtn").addEventListener("click", exitMeasurementFlow);
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-history-details]")) return;
     document.querySelectorAll("[data-history-details][open]").forEach((details) => {
@@ -589,8 +587,7 @@ function bindEvents() {
   document.addEventListener("keydown", handleKeyboard);
   window.addEventListener("resize", debounce(() => {
     renderCurrentChart();
-    if (state.activeTab === "array3d") render3D();
-    if (state.activeTab === "compare") renderCompare();
+    if (state.activeTab === "array3d") renderRecordDetail();
   }, 120));
   window.addEventListener("online", () => {
     updateNetworkStatus();
@@ -645,12 +642,7 @@ function switchTab(name) {
 
   if (name === "history") renderHistory();
   if (name === "array3d") {
-    refresh3dGrinderOptions();
-    render3D();
-  }
-  if (name === "compare") {
-    refreshCompareOptions();
-    renderCompare();
+    renderRecordDetail();
   }
   if (name === "community") renderCommunity();
   if (name === "syncLog") {
@@ -665,8 +657,7 @@ function renderAll() {
   renderCurrent();
   refreshHistoryFilters();
   renderHistory();
-  refresh3dGrinderOptions();
-  refreshCompareOptions();
+  renderRecordDetail();
   refreshCommunityFilters();
   renderCommunity();
   updateCommunitySummary();
@@ -984,12 +975,34 @@ async function syncCloudRecords({ quiet = false } = {}) {
 }
 
 function startMeasurementFlow() {
+  switchTab("measure");
   if (!state.identityConfirmed || state.browsingOnly || state.store.user.temporary) {
     openAuthModal();
     toast("开始测量前请先登录或注册用户 ID。", "error");
     return;
   }
   openWizard({ preferRecent: true });
+}
+
+function prepareMeasurementPage() {
+  const wizard = $("wizard");
+  const workspace = $("measurementWorkspace");
+  if (!wizard || !workspace) return;
+  workspace.appendChild(wizard);
+  wizard.classList.remove("overlay");
+  wizard.setAttribute("role", "region");
+  wizard.removeAttribute("aria-modal");
+}
+
+function showMeasurementWorkspace() {
+  $("measurementHome").classList.add("is-active");
+  $("wizard").classList.remove("hidden");
+  requestAnimationFrame(() => $("wizard").scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
+function resetMeasurementPage() {
+  $("wizard").classList.add("hidden");
+  $("measurementHome").classList.remove("is-active");
 }
 
 function getTemporaryRecords() {
@@ -1150,7 +1163,7 @@ function openWizard(options = {}) {
   clearWizardFields();
   renderWizardStep1();
   goWizardStep(options.useLast || state.wizard.mode === "edit-remote" ? 2 : 1);
-  showModal("wizard");
+  showMeasurementWorkspace();
 }
 
 function isLastGrinderRecent() {
@@ -1161,7 +1174,7 @@ function isLastGrinderRecent() {
 function exitMeasurementFlow() {
   clearTimeout(state.nextRoundTimer);
   state.nextRoundTimer = null;
-  hideModal("wizard");
+  resetMeasurementPage();
   toast("已退出本轮测量，现有记录不会受影响。", "success");
 }
 
@@ -1516,10 +1529,10 @@ async function saveWizardRecord() {
         updateNetworkStatus(`已保存本机；云端上传或校验失败：${error.message}`);
       });
   }
-  hideModal("wizard");
+  resetMeasurementPage();
   renderAll();
-  switchTab("current");
-  toast("记录已保存在本机。点击“开始称测”可进行下一次测量。", "success");
+  switchTab("measure");
+  toast("记录已自动保存在本机，可继续开始下一次称测。", "success");
   clearTimeout(state.nextRoundTimer);
   state.nextRoundTimer = null;
 }
@@ -1840,8 +1853,9 @@ function bindHistorySelection(container) {
 
 function updateHistorySelectionStatus() {
   const count = state.selectedHistoryIds.size;
-  $("historySelectionStatus").textContent = `已选择 ${count} / ${MAX_COMPARE_RECORDS} 条（至少选择 2 条）`;
-  $("compareHistorySelectionBtn").disabled = count < 2;
+  $("historySelectionStatus").textContent = `已选择 ${count} / ${MAX_COMPARE_RECORDS} 条`;
+  $("compareHistorySelectionBtn").textContent = count > 1 ? "对比所选" : "查看详情";
+  $("compareHistorySelectionBtn").disabled = count < 1;
 }
 
 function clearHistorySelection() {
@@ -1861,11 +1875,15 @@ function selectAllHistory() {
 }
 
 function compareHistorySelection() {
-  if (state.selectedHistoryIds.size < 2) {
-    toast("请至少选择两条记录。", "error");
+  if (!state.selectedHistoryIds.size) {
+    toast("请至少选择一条记录。", "error");
     return;
   }
-  switchTab("compare");
+  if (state.selectedHistoryIds.size === 1) {
+    state.selectedRecordId = [...state.selectedHistoryIds][0];
+    state.selectedRecordSource = "local";
+  }
+  switchTab("array3d");
 }
 
 function bindRecordTableActions(container, community) {
@@ -1873,8 +1891,9 @@ function bindRecordTableActions(container, community) {
     button.addEventListener("click", () => {
       state.selectedRecordId = button.dataset.viewRecord;
       state.selectedRecordSource = community ? "community" : "local";
-      renderCurrent();
-      switchTab("current");
+      state.selectedHistoryIds = new Set([button.dataset.viewRecord]);
+      renderRecordDetail();
+      switchTab("array3d");
     });
   });
   container.querySelectorAll("[data-delete-record]").forEach((button) => {
@@ -1966,7 +1985,8 @@ function cloneAsRetest(id) {
   $("wizardUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
   $("sameAsLastBtn").hidden = !state.store.lastGrinder;
   clearWizardFields();
-  showModal("wizard");
+  switchTab("measure");
+  showMeasurementWorkspace();
   goWizardStep(2);
 }
 
@@ -2064,7 +2084,43 @@ function swapCompare() {
 }
 
 function renderCompare() {
-  renderMultiCompare();
+  renderRecordDetail();
+}
+
+function renderRecordDetail() {
+  const selectedLocalRecords = [...state.selectedHistoryIds]
+    .map((id) => state.store.records.find((record) => record.id === id))
+    .filter(Boolean)
+    .slice(0, MAX_COMPARE_RECORDS);
+  const isMulti = selectedLocalRecords.length > 1;
+  $("singleRecordDetail").hidden = isMulti;
+  $("multiRecordDetail").hidden = !isMulti;
+  $("recordDetailTitle").textContent = isMulti
+    ? `对比分析 · ${selectedLocalRecords.length} 条记录`
+    : "记录详情";
+
+  if (isMulti) {
+    renderMultiCompare();
+    return;
+  }
+
+  const record = selectedLocalRecords[0] || getSelectedRecord();
+  if (!record) {
+    $("singleRecordMeta").innerHTML = "";
+    $("singleRecordNote").textContent = "暂无可查看的记录。请先完成称测，或从历史记录选择一条记录。";
+    const { ctx, width, height } = setupCanvas($("canvasRecordDetail"));
+    drawEmptyCanvas(ctx, width, height, "暂无记录");
+    return;
+  }
+  state.selectedRecordId = record.id;
+  state.selectedRecordSource = state.store.records.some((item) => item.id === record.id) ? "local" : "community";
+  $("singleRecordMeta").innerHTML = `
+    <span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></span>
+    <span>刻度 ${escapeHtml(record.grinder.setting)}</span>
+    <span>${escapeHtml(formatDateTime(record.createdAt))}</span>
+    ${qualityChip(record.metrics.quality)}`;
+  $("singleRecordNote").textContent = `${Core.getRecordSieves(record).length} 个粒径分段 · 回收总重 ${formatNumber(record.totalG, 2)} g`;
+  drawBarChart($("canvasRecordDetail"), record, $("recordDetailUnit").value);
 }
 
 function renderMultiCompare() {
@@ -2117,11 +2173,9 @@ async function syncCommunity({ quiet = false } = {}) {
       records: state.communityRecords
     }));
     refreshCommunityFilters();
-    refreshCompareOptions();
-    refresh3dGrinderOptions();
     updateCommunitySummary();
     renderCommunity();
-    renderCompare();
+    renderRecordDetail();
     renderSyncLog();
     updateNetworkStatus(`社区数据库已同步 · ${state.communityRecords.length} 条记录`);
     $("communityStatus").textContent = `已同步 ${state.communityRecords.length} 条记录`;
