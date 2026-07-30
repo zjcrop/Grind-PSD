@@ -278,7 +278,7 @@
           key: "pan80_lt300_g",
           mesh: null,
           apertureUm: null,
-          label: "低于 60 目（旧五段，未拆分）",
+          label: "低于 60 目",
           shortLabel: "<300μm旧档",
           range: "< 300 μm",
           description: "历史合并档，无法拆分为80目筛上与<180 μm"
