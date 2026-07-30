@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-apk-1.0
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest
