@@ -1,13 +1,13 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v3.0.0";
-const DATA_CACHE = "grind-psd-data-v3.0.0";
+const SHELL_CACHE = "grind-psd-shell-v4.0.0";
+const DATA_CACHE = "grind-psd-data-v4.0.0";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./assets/psd-core.js",
-  "./assets/app.js",
-  "./assets/styles.css",
+  "./assets/app-v4.js",
+  "./assets/styles-v4.css",
   "./assets/icon.svg",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
@@ -51,6 +51,16 @@ self.addEventListener("fetch", (event) => {
     url.pathname.includes("/data/users/")
   ) {
     event.respondWith(networkFirst(request, DATA_CACHE));
+    return;
+  }
+
+  if (
+    url.pathname.endsWith("/assets/app-v4.js") ||
+    url.pathname.endsWith("/assets/psd-core.js") ||
+    url.pathname.endsWith("/assets/styles-v4.css") ||
+    url.pathname.endsWith("/manifest.webmanifest")
+  ) {
+    event.respondWith(networkFirst(request, SHELL_CACHE));
     return;
   }
 
