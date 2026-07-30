@@ -1,11 +1,12 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v6.2.0";
-const DATA_CACHE = "grind-psd-data-v6.2.0";
+const SHELL_CACHE = "grind-psd-shell-v7.0.0";
+const DATA_CACHE = "grind-psd-data-v7.0.0";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./assets/psd-core.js",
+  "./assets/supabase-sync.js",
   "./assets/app-v5.js",
   "./assets/styles-v5.css",
   "./assets/icon.svg",

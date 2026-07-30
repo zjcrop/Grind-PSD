@@ -2,8 +2,9 @@
 
 // Grind-PSD v5 application shell and interaction state machine.
 const Core = window.GrindPSDCore;
+const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "6.1.0";
+const APP_VERSION = "7.0.0";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -63,7 +64,9 @@ async function init() {
   buildStandardRows();
   buildWeighRows();
   bindEvents();
-  restoreLocalSession();
+  if (Cloud) await Cloud.init();
+  if (Cloud?.isSignedIn()) await restoreCloudSession();
+  else restoreLocalSession();
   updateActiveUser();
   selectNewestRecord();
   renderAll();
@@ -75,6 +78,17 @@ async function init() {
   }
   prepareAuthModal();
   if (!state.identityConfirmed) setTimeout(() => openAuthModal(), 80);
+  if (Cloud?.isSignedIn()) syncCloudRecords({ quiet: true });
+}
+
+async function restoreCloudSession() {
+  try {
+    const profile = await Cloud.profile();
+    if (!profile?.handle) return;
+    activateProfile({ id: profile.handle, name: profile.display_name || profile.handle }, true);
+  } catch (error) {
+    updateNetworkStatus(`云端会话恢复失败：${error.message}`);
+  }
 }
 
 function restoreLocalSession() {
@@ -463,6 +477,8 @@ function bindEvents() {
   $("loginContinueBtn").addEventListener("click", loginAndContinue);
   $("registerUserId").addEventListener("input", updateRegistrationAvailability);
   $("registerUserName").addEventListener("input", updateRegistrationAvailability);
+  $("registerEmail").addEventListener("input", updateRegistrationAvailability);
+  $("registerPassword").addEventListener("input", updateRegistrationAvailability);
   $("registerContinueBtn").addEventListener("click", registerAndContinue);
   $("authBrowseOnlyBtn").addEventListener("click", exitAuthToBrowse);
   $("authRegisterExitBtn").addEventListener("click", exitAuthToBrowse);
@@ -661,7 +677,9 @@ function updateActiveUser() {
 function updateNetworkStatus(message = "") {
   const online = navigator.onLine;
   $("networkDot").className = `status-dot ${online ? "online" : "offline"}`;
-  $("networkText").textContent = message || (online ? "本地保存模式 · 数据不上传" : "离线模式 · 本地记录功能正常");
+  $("networkText").textContent = message || (online
+    ? (Cloud?.isSignedIn() ? "本地优先 · Supabase 已连接" : "本地优先 · 登录后同步")
+    : "离线模式 · 本地记录功能正常");
 }
 
 function isValidUserId(value) {
@@ -678,14 +696,7 @@ function onlineUsers() {
 }
 
 function prepareAuthModal() {
-  const localProfiles = Object.values(state.store.profiles || {});
-  const ids = unique(localProfiles.map((profile) => profile.id)).sort();
-  $("knownUserIds").innerHTML = ids.map((id) => {
-    const name = state.store.profiles[id]?.name || id;
-    return `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`;
-  }).join("");
-  const preferred = state.store.activeUserId || localProfiles[0]?.id || "";
-  $("loginUserId").value = preferred;
+  $("knownUserIds").innerHTML = "";
   $("rememberLoginInput").checked = state.store.settings.rememberLogin !== false;
   updateAuthNetworkStatus();
   updateLoginHint();
@@ -699,7 +710,7 @@ function openAuthModal() {
   setAuthMode((state.store.activeUserId || Object.keys(state.store.profiles || {}).length) ? "login" : "register");
   showModal("authModal");
   setTimeout(() => {
-    const target = state.authMode === "register" ? $("registerUserId") : $("loginUserId");
+    const target = state.authMode === "register" ? $("registerEmail") : $("loginUserId");
     target?.focus();
   }, 40);
 }
@@ -720,38 +731,43 @@ function updateAuthNetworkStatus() {
   const box = $("authNetworkStatus");
   const dot = box.querySelector(".status-dot");
   const text = box.querySelector("span:last-child");
-  dot.className = "status-dot online";
-  text.textContent = "本地账户模式：ID 与测量记录仅保存在当前浏览器。";
+  dot.className = `status-dot ${navigator.onLine ? "online" : "offline"}`;
+  text.textContent = navigator.onLine
+    ? "Supabase 安全连接可用；业务表已启用 RLS 用户隔离。"
+    : "当前离线；可继续使用本地数据，联网后再登录同步。";
 }
 
 function updateLoginHint() {
-  const id = Core.normalizeUserId($("loginUserId").value);
-  const local = state.store.profiles?.[id];
+  const email = $("loginUserId").value.trim();
   const hint = $("loginUserHint");
-  if (!id) {
-    hint.textContent = "可从本机 ID 和在线用户中选择。";
-  } else if (local) {
-    hint.textContent = "本机已保存，可直接登录。";
-  } else {
-    hint.textContent = "本机未找到该 ID，请改用“注册新 ID”。";
-  }
+  hint.textContent = email
+    ? "将通过 Supabase Auth 验证；密码不会写入本地数据或 GitHub。"
+    : "请输入注册邮箱。";
 }
 
-function loginAndContinue() {
-  const id = Core.normalizeUserId($("loginUserId").value);
-  if (!isValidUserId(id) || isTemporaryUserId(id)) {
-    toast("请输入有效的已注册用户 ID。", "error");
+async function loginAndContinue() {
+  const email = $("loginUserId").value.trim();
+  const password = $("loginPassword").value;
+  if (!email || password.length < 8 || !navigator.onLine) {
+    toast("请输入有效邮箱和至少 8 位密码，并确认网络可用。", "error");
     return;
   }
-  const local = state.store.profiles?.[id];
-  if (!local) {
-    toast("本机没有该 ID，请切换到“注册新 ID”。", "error");
-    return;
+  const button = $("loginContinueBtn");
+  button.disabled = true;
+  try {
+    await Cloud.signIn(email, password);
+    const profile = await Cloud.profile();
+    if (!profile?.handle) throw new Error("账户档案缺少用户 ID，请重新注册或联系管理员");
+    activateProfile({ id: profile.handle, name: profile.display_name || profile.handle }, $("rememberLoginInput").checked);
+    hideModal("authModal");
+    $("loginPassword").value = "";
+    await syncCloudRecords({ quiet: true });
+    toast("云端登录成功，本地与云端记录已核对。", "success");
+  } catch (error) {
+    toast(`登录失败：${error.message}`, "error");
+  } finally {
+    button.disabled = false;
   }
-  const name = Core.cleanText(local?.name || id, 60);
-  activateProfile({ id, name, pendingRegistration: Boolean(local?.pendingRegistration) }, $("rememberLoginInput").checked);
-  hideModal("authModal");
-  toast("登录成功。点击“开始称测”进入流程。", "success");
 }
 
 function updateRegistrationAvailability() {
@@ -766,23 +782,47 @@ function updateRegistrationAvailability() {
     return;
   }
   if (state.store.profiles?.[id]) {
-    status.textContent = "该 ID 已保存在本机，请从“登录已有 ID”进入。";
-    status.classList.add("error");
+    status.textContent = "该 ID 本机曾使用；云端仍会执行唯一性校验。";
+  }
+  const email = $("registerEmail").value.trim();
+  const password = $("registerPassword").value;
+  if (!email || !email.includes("@") || password.length < 8) {
+    status.textContent = "还需填写有效邮箱和至少 8 位密码。";
     return;
   }
-  status.textContent = `ID “${id}” 在本机可用。`;
+  status.textContent = `ID “${id}” 格式有效，提交时进行云端判重。`;
   status.classList.add("ok");
   button.disabled = false;
 }
 
-function registerAndContinue() {
+async function registerAndContinue() {
   updateRegistrationAvailability();
   if ($("registerContinueBtn").disabled) return;
   const id = Core.normalizeUserId($("registerUserId").value);
   const name = Core.cleanText($("registerUserName").value || id, 60);
-  activateProfile({ id, name, pendingRegistration: false }, true);
-  hideModal("authModal");
-  toast("本机 ID 已注册并登录。点击“开始称测”进入流程。", "success");
+  const email = $("registerEmail").value.trim();
+  const password = $("registerPassword").value;
+  const button = $("registerContinueBtn");
+  button.disabled = true;
+  try {
+    const result = await Cloud.signUp(email, password, id, name);
+    $("registerPassword").value = "";
+    if (!result?.access_token) {
+      setAuthMode("login");
+      $("loginUserId").value = email;
+      hideModal("authModal");
+      toast("注册已提交，请先完成邮箱验证，再使用邮箱和密码登录。", "success");
+      return;
+    }
+    activateProfile({ id, name, pendingRegistration: false }, true);
+    hideModal("authModal");
+    await syncCloudRecords({ quiet: true });
+    toast("云端账户已注册并登录。", "success");
+  } catch (error) {
+    toast(`注册失败：${error.message}`, "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function activateProfile(profile, remember = true) {
@@ -812,6 +852,43 @@ function exitAuthToBrowse() {
   hideModal("authModal");
   updateActiveUser();
   toast("已退出登录流程；可以浏览和下载公开数据。", "success");
+}
+
+function deviceInstanceId() {
+  const key = "grindPsdDeviceInstanceV1";
+  let value = localStorage.getItem(key);
+  if (!/^[0-9a-f-]{36}$/i.test(value || "")) {
+    value = crypto.randomUUID();
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+async function syncCloudRecords({ quiet = false } = {}) {
+  if (!Cloud?.isSignedIn() || !navigator.onLine) return false;
+  try {
+    updateNetworkStatus("正在核对本地与 Supabase 记录…");
+    const remote = (await Cloud.pullRecords()).map(Core.normalizeRecord).filter(Boolean);
+    const merged = new Map();
+    [...remote, ...state.store.records].forEach((record) => {
+      const current = merged.get(record.id);
+      if (!current || String(record.updatedAt || record.createdAt) >= String(current.updatedAt || current.createdAt)) {
+        merged.set(record.id, record);
+      }
+    });
+    state.store.records = dedupeRecords([...merged.values()]);
+    const owned = state.store.records.filter((record) => record.user?.id === state.store.user.id);
+    for (const record of owned) await Cloud.pushRecord(record, deviceInstanceId());
+    saveStore();
+    renderAll();
+    updateNetworkStatus(`Supabase 同步完成 · ${owned.length} 条个人记录`);
+    if (!quiet) toast(`已同步 ${owned.length} 条记录。`, "success");
+    return true;
+  } catch (error) {
+    updateNetworkStatus(`云端同步失败，本地记录安全：${error.message}`);
+    if (!quiet) toast(`云端同步失败：${error.message}`, "error");
+    return false;
+  }
 }
 
 function startMeasurementFlow() {
@@ -1333,6 +1410,11 @@ async function saveWizardRecord() {
   state.selectedRecordId = record.id;
   state.selectedRecordSource = "local";
   saveStore();
+  if (Cloud?.isSignedIn() && navigator.onLine) {
+    Cloud.pushRecord(record, deviceInstanceId())
+      .then(() => updateNetworkStatus("记录已保存到本机并同步至 Supabase"))
+      .catch((error) => updateNetworkStatus(`已保存本机；云端稍后重试：${error.message}`));
+  }
   hideModal("wizard");
   renderAll();
   switchTab("current");
