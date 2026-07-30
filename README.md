@@ -1,8 +1,13 @@
 # Grind-PSD
 
-Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。v7.1 采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
+Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。1.0 正式版采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
 
-## v7.1 更新
+## 在线访问
+
+- 正式网址：<https://zjcrop.github.io/Grind-PSD/>
+- 旧网址 <https://zjcrop.github.io/Grind-PSD/?v=7.1> 仍可访问，并会自动跳转到不带版本参数的正式网址。
+
+## 1.0 正式版
 
 - “数据与 App”菜单新增“上传到服务器”。
 - 上传完成后从 Supabase 回读测次主表和全部粒径分段，逐项核对本地数据。
@@ -39,7 +44,7 @@ Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和�
 
 ## 数据、同步与隐私
 
-v7.1 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
+1.0 正式版的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
 
 云端结构包含 `profiles`、`grinders`、`sieve_sets`、`measurements`、`measurement_fractions`、`app_settings`、`sync_tombstones` 和 `data_schema_versions`。旧五段数据存入 `legacy_payload` 并标记为 `legacy-five-bin`，不会伪造拆分。
 
@@ -53,7 +58,7 @@ v7.1 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supa
 
 ```bash
 node --check assets/psd-core.js
-node --check assets/supabase-sync.js
+node --check assets/supabase-sync-v7.2.2.js
 node --check assets/app-v7.js
 node tests/test_core.js
 python -m unittest discover -s tests -p "test_*.py"
