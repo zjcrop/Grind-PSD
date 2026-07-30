@@ -1,7 +1,7 @@
 "use strict";
 
 (function () {
-  const URL = "https://phwqpxmnrogddrajwpqm.supabase.co";
+  const SUPABASE_URL = "https://phwqpxmnrogddrajwpqm.supabase.co";
   const KEY = "sb_publishable_owicJe5BeJ-4e1ckFwGBjA_luAdvDCO";
   const SESSION_KEY = "grindPsdSupabaseSessionV1";
   const SOURCE_APP = "grind-psd";
@@ -28,7 +28,7 @@
       ...(options.headers || {})
     };
     if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-    const response = await fetch(`${URL}${path}`, { ...options, headers });
+    const response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
     const text = await response.text();
     const data = text ? JSON.parse(text) : null;
     if (!response.ok) throw new Error(data?.msg || data?.message || data?.error_description || `HTTP ${response.status}`);
