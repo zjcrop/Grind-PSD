@@ -7,9 +7,73 @@
   },
   "ownerGithubLogin": "zjcrop",
   "registeredAt": "2026-07-30T02:23:23.223242Z",
-  "updatedAt": "2026-07-30T02:28:42.691290Z",
-  "recordCount": 1,
+  "updatedAt": "2026-07-30T02:29:17.373526Z",
+  "recordCount": 2,
   "records": [
+    {
+      "schemaVersion": "3.0.0",
+      "standardId": "grind-psd-sieve-v1",
+      "id": "gpsd-ms6w71va-1y5cdgvvrn9px",
+      "user": {
+        "id": "zj_crop-163-com",
+        "name": "庄稼"
+      },
+      "grinder": {
+        "brand": "泰摩",
+        "model": "M01",
+        "setting": "9",
+        "settingOrder": 10.0,
+        "color": "#8ab4f8"
+      },
+      "sample": {
+        "doseG": 15.0,
+        "bean": "",
+        "roastLevel": "",
+        "method": "手动水平往复筛分",
+        "durationSec": 60.0,
+        "sieveDevice": "Grind-PSD 五段筛具",
+        "replicate": 1
+      },
+      "weightsGrams": {
+        "mesh18_retained_g": 1.9,
+        "mesh24_retained_g": 6.5,
+        "mesh35_retained_g": 3.1,
+        "mesh60_retained_g": 2.1,
+        "pan80_lt300_g": 0.49
+      },
+      "totalG": 14.09,
+      "percentages": {
+        "mesh18_retained_pct": 13.48,
+        "mesh24_retained_pct": 46.13,
+        "mesh35_retained_pct": 22.0,
+        "mesh60_retained_pct": 14.9,
+        "pan80_lt300_pct": 3.48
+      },
+      "metrics": {
+        "coarsePct": 13.48,
+        "bodyPct": 68.13,
+        "finesPct": 3.48,
+        "modeBin": "24 目筛上",
+        "quality": {
+          "recoveryPct": 93.93,
+          "massBalanceErrorPct": 6.07,
+          "grade": "C",
+          "gradeLabel": "谨慎比较",
+          "protocolComplete": true
+        }
+      },
+      "notes": "",
+      "license": "CC-BY-4.0",
+      "createdAt": "2026-07-30T02:26:29.302000Z",
+      "updatedAt": "2026-07-30T02:29:17.372992Z",
+      "source": "github-issue",
+      "submission": {
+        "channel": "github-issue",
+        "githubLogin": "zjcrop",
+        "issueNumber": 4,
+        "action": "create"
+      }
+    },
     {
       "schemaVersion": "3.0.0",
       "standardId": "grind-psd-sieve-v1",
