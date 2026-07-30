@@ -2104,10 +2104,15 @@ function renderRecordDetail() {
     return;
   }
 
+  // An older cached v1.2 HTML shell may briefly run the current script during
+  // a service-worker rollout. Support its former container ID so mixed assets
+  // cannot abort the whole interface with null.innerHTML.
+  const summaryContainer = $("singleRecordSummary") || $("singleRecordMeta");
+  const chartTitle = $("singleRecordChartTitle");
   const record = selectedLocalRecords[0] || getSelectedRecord();
   if (!record) {
-    $("singleRecordSummary").innerHTML = "";
-    $("singleRecordChartTitle").textContent = "粉径分布柱状图";
+    if (summaryContainer) summaryContainer.innerHTML = "";
+    if (chartTitle) chartTitle.textContent = "粉径分布柱状图";
     $("singleRecordNote").textContent = "暂无可查看的记录。请先完成称测，或从历史记录选择一条记录。";
     const { ctx, width, height } = setupCanvas($("canvasRecordDetail"));
     drawEmptyCanvas(ctx, width, height, "暂无记录");
@@ -2116,9 +2121,13 @@ function renderRecordDetail() {
   state.selectedRecordId = record.id;
   state.selectedRecordSource = state.store.records.some((item) => item.id === record.id) ? "local" : "community";
   const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地历史记录";
-  $("singleRecordSummary").innerHTML = renderRecordSummaryPanel(record, sourceLabel, { actions: true });
-  bindRecordSummaryActions($("singleRecordSummary"), record);
-  $("singleRecordChartTitle").innerHTML = `粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span>`;
+  if (summaryContainer) {
+    summaryContainer.innerHTML = renderRecordSummaryPanel(record, sourceLabel, { actions: true });
+    bindRecordSummaryActions(summaryContainer, record);
+  }
+  if (chartTitle) {
+    chartTitle.innerHTML = `粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span>`;
+  }
   $("singleRecordNote").textContent = "以上信息为该次称测保存时的完整记录；切换纵轴不会修改原始数据。";
   drawBarChart($("canvasRecordDetail"), record, $("recordDetailUnit").value);
 }
