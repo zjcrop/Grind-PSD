@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v722_network_first_shell(self):
+    def test_service_worker_uses_v100_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v7.2.2", service_worker)
+        self.assertIn("grind-psd-shell-v1.0.0", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -137,6 +137,16 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("redirect_to=${encodeURIComponent(authRedirectUrl())}", cloud)
         self.assertIn('hash.has("access_token")', cloud)
         self.assertIn('code === "otp_expired"', cloud)
+
+    def test_canonical_url_and_legacy_v71_redirect(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        manifest = (ROOT / "manifest.webmanifest").read_text(encoding="utf-8")
+        self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
+        self.assertIn('location.search === "?v=7.1"', html)
+        self.assertIn("v1.0 正式版", html)
+        self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
+        self.assertIn('"version": "1.0.0"', manifest)
 
 
 if __name__ == "__main__":
