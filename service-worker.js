@@ -7,7 +7,7 @@ const APP_SHELL = [
   "./index.html",
   "./assets/psd-core.js",
   "./assets/supabase-sync.js",
-  "./assets/app-v5.js",
+  "./assets/app-v7.js",
   "./assets/styles-v5.css",
   "./assets/icon.svg",
   "./assets/icons/icon-192.png",
@@ -56,7 +56,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (
-    url.pathname.endsWith("/assets/app-v5.js") ||
+    url.pathname.endsWith("/assets/app-v7.js") ||
     url.pathname.endsWith("/assets/psd-core.js") ||
     url.pathname.endsWith("/assets/styles-v5.css") ||
     url.pathname.endsWith("/data/app-config.json") ||
