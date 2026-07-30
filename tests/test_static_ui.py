@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class StaticUiTests(unittest.TestCase):
     def test_every_bound_static_id_exists(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         html_ids = set(re.findall(r"""\bid=["']([^"']+)["']""", html))
         bind_block = script.split("function bindEvents()", 1)[1].split(
             "function handleKeyboard", 1
@@ -41,14 +41,14 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("./assets/supabase-sync.js", service_worker)
         self.assertRegex(
             service_worker,
-            r'endsWith\("/assets/app-v5\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
+            r'endsWith\("/assets/app-v7\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
         )
-        self.assertIn("node --check assets/app-v5.js", pages_workflow)
+        self.assertIn("node --check assets/app-v7.js", pages_workflow)
         self.assertNotIn("node --check assets/app-v4.js", pages_workflow)
 
     def test_all_canvas_charts_use_two_to_one_runtime_ratio(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
         self.assertNotRegex(html, r"<canvas[^>]+\bheight=")
         self.assertIn("const height = Math.round(width / 2);", script)
@@ -56,7 +56,7 @@ class StaticUiTests(unittest.TestCase):
 
     def test_local_only_runtime_and_persisted_login(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         init_block = script.split("async function init()", 1)[1].split(
             "function restoreLocalSession", 1
         )[0]
@@ -67,7 +67,7 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('data-tab="syncLog" type="button" hidden', html)
 
     def test_save_ends_round_without_automatic_restart(self):
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         save_block = script.split("async function saveWizardRecord()", 1)[1].split(
             "function selectNewestRecord", 1
         )[0]
@@ -76,7 +76,7 @@ class StaticUiTests(unittest.TestCase):
 
     def test_multi_record_compare_and_mobile_cards(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
         self.assertIn("MAX_COMPARE_RECORDS = 10", script)
         self.assertNotIn("activateTab(", script)
@@ -91,7 +91,7 @@ class StaticUiTests(unittest.TestCase):
 
     def test_compact_history_and_multi_compare_only(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
         self.assertIn('id="historyFilterModal"', html)
         self.assertIn('id="openHistoryFilterBtn"', html)

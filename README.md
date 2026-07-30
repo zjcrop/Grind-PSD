@@ -47,7 +47,7 @@ v7.0 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supa
 ```bash
 node --check assets/psd-core.js
 node --check assets/supabase-sync.js
-node --check assets/app-v5.js
+node --check assets/app-v7.js
 node tests/test_core.js
 python -m unittest discover -s tests -p "test_*.py"
 ```
