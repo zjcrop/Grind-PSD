@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v70_network_first_shell(self):
+    def test_service_worker_uses_v71_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v7.0.0", service_worker)
+        self.assertIn("grind-psd-shell-v7.1.0", service_worker)
         self.assertIn("./assets/supabase-sync.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -102,6 +102,19 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("双记录重叠对比", html)
         self.assertNotIn('id="canvasCmp"', html)
         self.assertIn('data-tab="array3d" type="button">记录详情</button>', html)
+
+    def test_verified_cloud_upload_ui(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        cloud = (ROOT / "assets" / "supabase-sync.js").read_text(encoding="utf-8")
+        styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
+        self.assertIn('id="uploadCloudBtn"', html)
+        self.assertIn('id="menuSyncDot"', html)
+        self.assertIn("async function uploadAllRecordsToCloud()", script)
+        self.assertIn("async function pushAndVerifyRecord(record)", script)
+        self.assertIn("async function verifyRecord(record)", cloud)
+        self.assertIn("measurement_fractions(", cloud)
+        self.assertIn(".record-cloud-dot", styles)
 
 
 if __name__ == "__main__":
