@@ -241,6 +241,38 @@ a {
   font-size: 9px;
 }
 
+.menu-sync-dot,
+.record-cloud-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: 7px;
+  border-radius: 50%;
+}
+
+.menu-sync-dot.success,
+.record-cloud-dot {
+  background: var(--green);
+  box-shadow: 0 0 7px rgba(111, 191, 115, 0.62);
+}
+
+.menu-sync-dot.failed {
+  background: var(--red);
+  box-shadow: 0 0 7px rgba(216, 92, 92, 0.5);
+}
+
+.menu-sync-dot.syncing {
+  background: var(--green);
+  box-shadow: 0 0 9px rgba(111, 191, 115, 0.75);
+  animation: pulse .7s ease-in-out infinite alternate;
+}
+
+.record-cloud-dot {
+  margin-left: 5px;
+  vertical-align: 1px;
+}
+
 .action-menu[open] > summary {
   border-color: var(--border-strong);
   background: var(--panel-2);

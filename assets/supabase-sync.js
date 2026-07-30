@@ -126,6 +126,46 @@
     }));
   }
 
+  function nearlyEqual(left, right, tolerance = 0.0001) {
+    if (left === null || left === undefined || right === null || right === undefined) {
+      return left == null && right == null;
+    }
+    return Math.abs(Number(left) - Number(right)) <= tolerance;
+  }
+
+  async function verifyRecord(record) {
+    if (!session?.user?.id) throw new Error("尚未登录云端账户");
+    const recordId = encodeURIComponent(String(record.id || ""));
+    const rows = await select("measurements",
+      `select=id,legacy_payload,total_mass_g,quality_label,measurement_fractions(ordinal,label,lower_um,upper_um,mass_g,percentage,legacy_merged)&deleted_at=is.null&source_app=eq.${SOURCE_APP}&source_record_id=eq.${recordId}&limit=1`);
+    const cloud = rows[0];
+    if (!cloud) throw new Error("服务器回读不到刚上传的记录");
+
+    const payload = cloud.legacy_payload || {};
+    const expectedFractions = sieveRows(record).sort((a, b) => a.ordinal - b.ordinal);
+    const actualFractions = [...(cloud.measurement_fractions || [])].sort((a, b) => a.ordinal - b.ordinal);
+    const sameHeader = payload.id === record.id
+      && payload.updatedAt === record.updatedAt
+      && payload.grinder?.brand === record.grinder?.brand
+      && payload.grinder?.model === record.grinder?.model
+      && String(payload.grinder?.setting || "") === String(record.grinder?.setting || "")
+      && nearlyEqual(cloud.total_mass_g, record.totalG)
+      && String(cloud.quality_label || "U") === String(record.metrics?.quality?.grade || "U");
+    const sameFractions = expectedFractions.length === actualFractions.length
+      && expectedFractions.every((expected, index) => {
+        const actual = actualFractions[index];
+        return expected.ordinal === actual.ordinal
+          && expected.label === actual.label
+          && nearlyEqual(expected.lower_um, actual.lower_um)
+          && nearlyEqual(expected.upper_um, actual.upper_um)
+          && nearlyEqual(expected.mass_g, actual.mass_g)
+          && nearlyEqual(expected.percentage, actual.percentage, 0.001)
+          && expected.legacy_merged === actual.legacy_merged;
+      });
+    if (!sameHeader || !sameFractions) throw new Error("服务器数据与本地记录不一致");
+    return { measurementId: cloud.id, verifiedAt: new Date().toISOString() };
+  }
+
   async function pushRecord(record, deviceInstanceId) {
     if (!session?.user?.id) throw new Error("尚未登录云端账户");
     const uid = session.user.id;
@@ -175,7 +215,7 @@
   }
 
   window.GrindPSDCloud = {
-    init, signIn, signUp, signOut, profile, pushRecord, pullRecords,
+    init, signIn, signUp, signOut, profile, pushRecord, verifyRecord, pullRecords,
     isSignedIn: () => Boolean(session?.access_token),
     user: () => session?.user || null
   };
