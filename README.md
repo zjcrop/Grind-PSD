@@ -1,8 +1,15 @@
 # Grind-PSD
 
-Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。v7.0 采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
+Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。v7.1 采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
 
-## v7.0 功能
+## v7.1 更新
+
+- “数据与 App”菜单新增“上传到服务器”。
+- 上传完成后从 Supabase 回读测次主表和全部粒径分段，逐项核对本地数据。
+- 顶部菜单状态点区分上传中、成功与失败；历史记录仅在云端校验一致后显示绿点。
+- 本地记录发生修改后，旧的云端确认标记自动失效，直到重新上传并通过校验。
+
+## 核心功能
 
 - 云端账户：邮箱和密码由 Supabase Auth 管理，自定义用户 ID 写入个人档案。
 - 手动启动：打开应用后保持在主界面，只有点击“开始称测”才进入设备、刻度和六分段称重流程。
@@ -32,7 +39,7 @@ Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和�
 
 ## 数据、同步与隐私
 
-v7.0 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
+v7.1 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
 
 云端结构包含 `profiles`、`grinders`、`sieve_sets`、`measurements`、`measurement_fractions`、`app_settings`、`sync_tombstones` 和 `data_schema_versions`。旧五段数据存入 `legacy_payload` 并标记为 `legacy-five-bin`，不会伪造拆分。
 
