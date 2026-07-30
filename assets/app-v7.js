@@ -151,6 +151,7 @@ function defaultStore() {
     },
     catalog: {},
     records: [],
+    cloudSync: {},
     syncQueue: [],
     lastGrinder: null,
     lastMeasurementAt: null,
@@ -237,6 +238,7 @@ function normalizeStore(input, base) {
     },
     catalog: input.catalog && typeof input.catalog === "object" ? input.catalog : {},
     records: dedupeRecords(records),
+    cloudSync: input.cloudSync && typeof input.cloudSync === "object" ? input.cloudSync : {},
     syncQueue: normalizeSyncQueue(input.syncQueue),
     lastGrinder: input.lastGrinder || null,
     lastMeasurementAt: input.lastMeasurementAt || input.lastGrinder?.measuredAt || null
@@ -451,6 +453,10 @@ function bindEvents() {
   });
 
   $("newRecordBtn").addEventListener("click", startMeasurementFlow);
+  $("uploadCloudBtn").addEventListener("click", () => {
+    closeActionMenu();
+    uploadAllRecordsToCloud();
+  });
   $("exportBtn").addEventListener("click", () => {
     closeActionMenu();
     exportAllJson();
@@ -682,6 +688,79 @@ function updateNetworkStatus(message = "") {
     : "离线模式 · 本地记录功能正常");
 }
 
+function setCloudSyncIndicator(status = "") {
+  const dot = $("menuSyncDot");
+  if (!dot) return;
+  dot.hidden = !status;
+  dot.className = `menu-sync-dot ${status}`.trim();
+  dot.setAttribute("aria-label", status === "success"
+    ? "云端同步成功"
+    : status === "failed" ? "云端同步失败" : "正在同步到云端");
+}
+
+function isCloudVerified(record) {
+  const item = state.store.cloudSync?.[record.id];
+  return Boolean(item?.status === "verified" && item.recordUpdatedAt === record.updatedAt);
+}
+
+function markCloudSync(record, status, detail = {}) {
+  state.store.cloudSync ||= {};
+  state.store.cloudSync[record.id] = {
+    status,
+    recordUpdatedAt: record.updatedAt,
+    checkedAt: new Date().toISOString(),
+    ...detail
+  };
+  saveStore();
+  renderHistory();
+}
+
+async function pushAndVerifyRecord(record) {
+  markCloudSync(record, "uploading");
+  const measurementId = await Cloud.pushRecord(record, deviceInstanceId());
+  const verified = await Cloud.verifyRecord(record);
+  markCloudSync(record, "verified", {
+    measurementId: verified.measurementId || measurementId,
+    verifiedAt: verified.verifiedAt
+  });
+  return verified;
+}
+
+async function uploadAllRecordsToCloud() {
+  if (!Cloud?.isSignedIn()) {
+    openAuthModal();
+    toast("请先登录云端账户，再上传本地数据。", "error");
+    return false;
+  }
+  if (!navigator.onLine) {
+    setCloudSyncIndicator("failed");
+    toast("当前离线，无法上传到服务器。", "error");
+    return false;
+  }
+  const owned = state.store.records.filter((record) => record.user?.id === state.store.user.id);
+  if (!owned.length) {
+    toast("当前账户没有可上传的本地记录。", "error");
+    return false;
+  }
+  setCloudSyncIndicator("syncing");
+  updateNetworkStatus(`正在上传并校验 ${owned.length} 条本地记录…`);
+  try {
+    for (const record of owned) await pushAndVerifyRecord(record);
+    setCloudSyncIndicator("success");
+    updateNetworkStatus(`云端校验完成 · ${owned.length} 条记录与本地一致`);
+    toast(`上传成功：${owned.length} 条服务器记录已回读并确认与本地一致。`, "success");
+    renderAll();
+    return true;
+  } catch (error) {
+    const uploading = owned.find((record) => state.store.cloudSync?.[record.id]?.status === "uploading");
+    if (uploading) markCloudSync(uploading, "failed", { error: error.message });
+    setCloudSyncIndicator("failed");
+    updateNetworkStatus(`上传或云端校验失败，本地数据未受影响：${error.message}`);
+    toast(`上传失败：${error.message}`, "error");
+    return false;
+  }
+}
+
 function isValidUserId(value) {
   return /^[a-z0-9][a-z0-9_-]{1,47}$/.test(String(value || ""));
 }
@@ -878,13 +957,16 @@ async function syncCloudRecords({ quiet = false } = {}) {
     });
     state.store.records = dedupeRecords([...merged.values()]);
     const owned = state.store.records.filter((record) => record.user?.id === state.store.user.id);
-    for (const record of owned) await Cloud.pushRecord(record, deviceInstanceId());
+    setCloudSyncIndicator("syncing");
+    for (const record of owned) await pushAndVerifyRecord(record);
     saveStore();
     renderAll();
     updateNetworkStatus(`Supabase 同步完成 · ${owned.length} 条个人记录`);
+    setCloudSyncIndicator("success");
     if (!quiet) toast(`已同步 ${owned.length} 条记录。`, "success");
     return true;
   } catch (error) {
+    setCloudSyncIndicator("failed");
     updateNetworkStatus(`云端同步失败，本地记录安全：${error.message}`);
     if (!quiet) toast(`云端同步失败：${error.message}`, "error");
     return false;
@@ -1411,9 +1493,18 @@ async function saveWizardRecord() {
   state.selectedRecordSource = "local";
   saveStore();
   if (Cloud?.isSignedIn() && navigator.onLine) {
-    Cloud.pushRecord(record, deviceInstanceId())
-      .then(() => updateNetworkStatus("记录已保存到本机并同步至 Supabase"))
-      .catch((error) => updateNetworkStatus(`已保存本机；云端稍后重试：${error.message}`));
+    setCloudSyncIndicator("syncing");
+    pushAndVerifyRecord(record)
+      .then(() => {
+        setCloudSyncIndicator("success");
+        updateNetworkStatus("记录已保存到本机，且云端回读校验一致");
+        toast("云端上传成功，服务器数据与本地一致。", "success");
+      })
+      .catch((error) => {
+        markCloudSync(record, "failed", { error: error.message });
+        setCloudSyncIndicator("failed");
+        updateNetworkStatus(`已保存本机；云端上传或校验失败：${error.message}`);
+      });
   }
   hideModal("wizard");
   renderAll();
@@ -1646,7 +1737,7 @@ function recordTable(records, options = {}) {
           <span class="history-record-line">
             <time>${escapeHtml(formatDateTime(record.createdAt))}</time>
             <strong>${escapeHtml(record.grinder.model)}/${escapeHtml(record.grinder.setting)}</strong>
-            <span>${escapeHtml(record.metrics.quality.gradeLabel || "未评级")}</span>
+            <span>${escapeHtml(record.metrics.quality.gradeLabel || "未评级")}${isCloudVerified(record) ? '<i class="record-cloud-dot" title="已同步并通过云端一致性校验" aria-label="已同步到云端"></i>' : ""}</span>
           </span>
         </summary>
         <div class="history-record-detail">
