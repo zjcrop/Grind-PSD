@@ -2459,3 +2459,404 @@ label.field {
     break-inside: avoid;
   }
 }
+
+/* Grind-PSD 1.0.1: strict black/blue responsive interface. */
+:root {
+  --bg: #000000;
+  --bg-soft: #03070c;
+  --panel: #07111d;
+  --panel-2: #0b1b2b;
+  --panel-3: #102a43;
+  --border: #263b50;
+  --border-strong: #4f7da8;
+  --text: #f5f8fc;
+  --muted: #9cabb9;
+  --accent: #174f7e;
+  --accent-bright: #7ec8ff;
+  --accent-ink: #ffffff;
+  --blue: #76bff0;
+  --radius: 12px;
+  --radius-lg: 16px;
+}
+
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  background: #000;
+}
+
+body {
+  overflow-x: clip;
+  background: #000;
+}
+
+body * {
+  min-width: 0;
+}
+
+button.primary {
+  border-color: #276d9f;
+  background: #174f7e;
+  color: #fff;
+}
+
+button.danger {
+  border-color: #4f7da8;
+  color: #b9dcf5;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  padding: calc(12px + var(--safe-top)) calc(16px + var(--safe-right)) 12px calc(16px + var(--safe-left));
+  border-color: var(--border);
+  background: #000;
+}
+
+.brand-block {
+  min-width: 0;
+}
+
+.brand-mark {
+  border-color: #28577d;
+  background: #07111d;
+  box-shadow: inset 0 0 20px rgba(54, 145, 207, .12);
+}
+
+.brand-mark span {
+  background: #76bff0;
+}
+
+.brand-block h1 {
+  color: #fff;
+}
+
+.top-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  width: auto;
+}
+
+#newRecordBtn {
+  white-space: nowrap;
+}
+
+.settings-cluster {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.gear-button {
+  display: grid !important;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px !important;
+  padding: 0 !important;
+  border-color: var(--border) !important;
+  font-size: 21px !important;
+  line-height: 1;
+}
+
+.gear-button::after {
+  display: none;
+}
+
+.settings-cluster > .menu-sync-dot {
+  margin: 0;
+}
+
+.menu-section-title {
+  padding: 5px 8px 2px;
+  color: #76bff0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.action-menu-popover {
+  width: min(245px, calc(100vw - 24px));
+  border-color: var(--border-strong);
+  background: #07111d;
+}
+
+.status-strip {
+  background: #03070c;
+  border-color: var(--border);
+}
+
+.tabs {
+  width: 100%;
+  max-width: 100%;
+  padding-right: calc(16px + var(--safe-right));
+  padding-left: calc(16px + var(--safe-left));
+  overscroll-behavior-inline: contain;
+}
+
+.tab.active {
+  color: #7ec8ff;
+}
+
+main {
+  width: 100%;
+  max-width: 1500px;
+  overflow: hidden;
+}
+
+.tab-panel,
+.panel,
+.grid2,
+.table-wrap,
+.canvas-scroll,
+.summary-grid,
+.metrics-grid {
+  width: 100%;
+  max-width: 100%;
+}
+
+.panel,
+.summary-card,
+.metric-card,
+.history-record,
+.selection-toolbar,
+.standard-id,
+.grade-list > div,
+.protocol-steps li {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+.panel h2,
+.eyebrow {
+  color: #7ec8ff;
+}
+
+.grid2 {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.standard-hero {
+  background: var(--panel);
+}
+
+.standard-id {
+  width: min(100%, 340px);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+#standardRows + *,
+#standardRows {
+  width: 100%;
+}
+
+#tab-standard table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+#tab-standard th,
+#tab-standard td {
+  width: 50%;
+  overflow-wrap: anywhere;
+}
+
+.pan-label {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.pan-label small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .62em;
+  font-weight: 400;
+}
+
+.grade {
+  border-color: #4f7da8 !important;
+  background: #174f7e !important;
+  color: #fff !important;
+}
+
+.grade-b {
+  background: #286c9f !important;
+}
+
+.grade-c {
+  background: #385a73 !important;
+}
+
+.grade-d {
+  background: #39434d !important;
+}
+
+.history-head-actions {
+  flex-wrap: nowrap;
+  width: auto;
+}
+
+.filter-trigger {
+  margin: 0;
+}
+
+.record-manage-menu {
+  position: relative;
+}
+
+.record-manage-menu > summary {
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.record-manage-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.record-manage-menu > div {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 75;
+  display: grid;
+  gap: 6px;
+  width: 170px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #07111d;
+  box-shadow: var(--shadow);
+}
+
+.record-manage-menu button {
+  width: 100%;
+  text-align: left;
+}
+
+.app-about {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.app-about strong {
+  color: #7ec8ff;
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    gap: 10px;
+    padding-right: calc(12px + var(--safe-right));
+    padding-left: calc(12px + var(--safe-left));
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .brand-block {
+    gap: 9px;
+  }
+
+  .brand-block h1 {
+    font-size: clamp(16px, 5vw, 19px);
+    white-space: nowrap;
+  }
+
+  .top-actions {
+    display: flex;
+    width: auto;
+    gap: 6px;
+  }
+
+  #newRecordBtn {
+    grid-column: auto;
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+
+  .panel-head {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .panel-head h2 {
+    flex: 1;
+  }
+
+  .history-head-actions {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .selection-toolbar {
+    align-items: stretch;
+  }
+
+  .selection-toolbar .panel-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .selection-toolbar button {
+    white-space: nowrap;
+  }
+
+  .grade-list > div {
+    grid-template-columns: 30px minmax(72px, .8fr) minmax(0, 1.7fr);
+  }
+
+  .grade-list p {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 390px) {
+  .brand-mark {
+    display: none;
+  }
+
+  .topbar {
+    grid-template-columns: minmax(82px, 1fr) auto;
+  }
+
+  #newRecordBtn {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .gear-button {
+    width: 36px;
+    min-width: 36px;
+  }
+
+  main {
+    padding-right: calc(9px + var(--safe-right));
+    padding-left: calc(9px + var(--safe-left));
+  }
+
+  .panel {
+    padding: 12px;
+  }
+}
