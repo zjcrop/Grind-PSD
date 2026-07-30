@@ -589,7 +589,7 @@ select {
 
 .table-wrap {
   width: 100%;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 table {
@@ -652,6 +652,46 @@ td.wrap-cell {
 .select-cell input {
   display: block;
   margin: auto;
+}
+
+.selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.multi-compare-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.multi-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.multi-legend-item i {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
 }
 
 .empty-state {
@@ -1880,6 +1920,68 @@ label.field {
 }
 
 @media (max-width: 680px) {
+  .selection-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .record-table,
+  .record-table tbody,
+  .record-table tr,
+  .record-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .record-table thead {
+    display: none;
+  }
+
+  .record-table tr {
+    margin-bottom: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+
+  .record-table td {
+    display: grid;
+    grid-template-columns: minmax(76px, 32%) minmax(0, 1fr);
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(58, 49, 41, 0.62);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .record-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .record-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .record-table .select-cell {
+    text-align: left;
+  }
+
+  .record-table .select-cell input {
+    margin: 0;
+  }
+
+  .record-table .row-actions {
+    flex-wrap: wrap;
+  }
+
+  .record-table .num {
+    text-align: left;
+  }
+
   body {
     padding-bottom: calc(28px + var(--safe-bottom));
   }

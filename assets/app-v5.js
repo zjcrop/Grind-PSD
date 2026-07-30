@@ -3,7 +3,8 @@
 // Grind-PSD v5 application shell and interaction state machine.
 const Core = window.GrindPSDCore;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "6.0.0";
+const APP_VERSION = "6.1.0";
+const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
 const LEGACY_KEYS = ["grindPsdAppV3", "grindPsdAppV2", "grindAnalyzerV1"];
@@ -16,7 +17,7 @@ const USER_DATA_PATH = "./data/users";
 const RECENT_GRINDER_WINDOW_MS = 30 * 60 * 1000;
 const MAX_BATCH_RECORDS = 20;
 const MAX_SYNC_QUEUE_ITEMS = 100;
-const PALETTE = ["#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5", "#4dd0e1", "#ffd54f", "#ff8a65"];
+const PALETTE = ["#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5", "#4dd0e1", "#ffd54f", "#ff8a65", "#64b5f6", "#c0ca33"];
 
 if (!Core) {
   throw new Error("GrindPSDCore failed to load.");
@@ -36,6 +37,7 @@ const state = {
   communityRecords: [],
   communityMeta: null,
   selectedCommunityIds: new Set(),
+  selectedHistoryIds: new Set(),
   wizard: freshWizard(),
   activeTab: "current",
   deferredInstallPrompt: null,
@@ -466,8 +468,15 @@ function bindEvents() {
   $("authRegisterExitBtn").addEventListener("click", exitAuthToBrowse);
 
   $("historySearch").addEventListener("input", renderHistory);
-  $("historyGrinderFilter").addEventListener("change", renderHistory);
-  $("historyGradeFilter").addEventListener("change", renderHistory);
+  ["historyBrandFilter", "historyModelFilter", "historyGradeFilter", "historyDateFrom", "historyDateTo", "historySort"].forEach((id) => {
+    $(id).addEventListener("change", () => {
+      if (id === "historyBrandFilter") refreshHistoryFilters();
+      renderHistory();
+    });
+  });
+  $("clearHistorySelectionBtn").addEventListener("click", clearHistorySelection);
+  $("compareHistorySelectionBtn").addEventListener("click", compareHistorySelection);
+  $("editCompareSelectionBtn").addEventListener("click", () => switchTab("history"));
   $("exportCsvBtn").addEventListener("click", () => exportRecordsCsv(getFilteredHistoryRecords(), "grind-psd-local"));
   $("clearRecordsBtn").addEventListener("click", clearLocalRecords);
 
@@ -1459,24 +1468,52 @@ function renderCurrentChart() {
 }
 
 function refreshHistoryFilters() {
-  const current = $("historyGrinderFilter").value;
-  const groups = unique(state.store.records.map((record) => grinderFilterKey(record.grinder.brand, record.grinder.model)));
-  $("historyGrinderFilter").innerHTML = '<option value="">全部磨豆机</option>' + groups.map((key) => {
-    const [brand, model] = key.split("::").map((part) => decodeURIComponent(part));
-    return `<option value="${escapeHtml(key)}">${escapeHtml(brand)} ${escapeHtml(model)}</option>`;
-  }).join("");
-  if (groups.includes(current)) $("historyGrinderFilter").value = current;
+  const brandSelect = $("historyBrandFilter");
+  const modelSelect = $("historyModelFilter");
+  const currentBrand = brandSelect.value;
+  const currentModel = modelSelect.value;
+  const brands = unique(state.store.records.map((record) => record.grinder.brand))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  brandSelect.innerHTML = '<option value="">全部品牌</option>' +
+    brands.map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`).join("");
+  if (brands.includes(currentBrand)) brandSelect.value = currentBrand;
+  const models = unique(state.store.records
+    .filter((record) => !brandSelect.value || record.grinder.brand === brandSelect.value)
+    .map((record) => record.grinder.model))
+    .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
+  modelSelect.innerHTML = '<option value="">全部型号</option>' +
+    models.map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join("");
+  if (models.includes(currentModel)) modelSelect.value = currentModel;
 }
 
 function getFilteredHistoryRecords() {
   const query = $("historySearch").value.trim().toLowerCase();
-  const grinder = $("historyGrinderFilter").value;
+  const brand = $("historyBrandFilter").value;
+  const model = $("historyModelFilter").value;
   const grade = $("historyGradeFilter").value;
+  const dateFrom = $("historyDateFrom").value;
+  const dateTo = $("historyDateTo").value;
+  const sort = $("historySort").value;
+  const qualityRank = { A: 5, B: 4, C: 3, D: 2, U: 1 };
   return state.store.records.filter((record) => {
-    if (grinder && grinderFilterKey(record.grinder.brand, record.grinder.model) !== grinder) return false;
+    if (brand && record.grinder.brand !== brand) return false;
+    if (model && record.grinder.model !== model) return false;
     if (grade && record.metrics.quality.grade !== grade) return false;
+    const day = String(record.createdAt || "").slice(0, 10);
+    if (dateFrom && day < dateFrom) return false;
+    if (dateTo && day > dateTo) return false;
     if (!query) return true;
     return searchableRecordText(record).includes(query);
+  }).sort((a, b) => {
+    if (sort === "date-asc") return String(a.createdAt).localeCompare(String(b.createdAt));
+    if (sort === "brand-asc") return `${a.grinder.brand} ${a.grinder.model} ${a.createdAt}`.localeCompare(
+      `${b.grinder.brand} ${b.grinder.model} ${b.createdAt}`, "zh-CN", { numeric: true }
+    );
+    if (sort === "quality-desc" || sort === "quality-asc") {
+      const delta = (qualityRank[b.metrics.quality.grade] || 0) - (qualityRank[a.metrics.quality.grade] || 0);
+      return sort === "quality-desc" ? delta : -delta;
+    }
+    return String(b.createdAt).localeCompare(String(a.createdAt));
   });
 }
 
@@ -1486,21 +1523,27 @@ function grinderFilterKey(brand, model) {
 
 function renderHistory() {
   const container = $("historyContent");
+  state.selectedHistoryIds = new Set([...state.selectedHistoryIds]
+    .filter((id) => state.store.records.some((record) => record.id === id)));
   const records = getFilteredHistoryRecords();
   if (!records.length) {
     container.innerHTML = '<div class="empty">没有符合条件的本地记录。</div>';
+    updateHistorySelectionStatus();
     return;
   }
-  container.innerHTML = recordTable(records, { community: false });
+  container.innerHTML = recordTable(records, { community: false, selectable: true });
   bindRecordTableActions(container, false);
+  bindHistorySelection(container);
+  updateHistorySelectionStatus();
 }
 
 function recordTable(records, options = {}) {
   return `
-    <table>
+    <table class="record-table">
       <thead>
         <tr>
           ${options.community ? '<th class="select-cell"><input type="checkbox" data-select-all aria-label="全选筛选结果"></th>' : ""}
+          ${options.selectable ? '<th class="select-cell">对比</th>' : ""}
           <th>用户</th><th>磨豆机</th><th>刻度</th><th class="num">回收总重</th>
           <th class="num">极细粉</th><th>等级</th><th>样品</th><th>时间</th><th></th>
         </tr>
@@ -1515,15 +1558,16 @@ function recordTable(records, options = {}) {
           return `
           <tr>
             ${options.community ? `<td class="select-cell"><input type="checkbox" data-community-select="${escapeHtml(record.id)}" ${state.selectedCommunityIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
-            <td>${escapeHtml(record.user.id)}</td>
-            <td><span class="dot" style="background:${Core.normalizeHexColor(record.grinder.color)}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
-            <td>${escapeHtml(record.grinder.setting)}</td>
-            <td class="num">${formatNumber(record.totalG, 2)} g</td>
-            <td class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
-            <td>${qualityChip(record.metrics.quality)}</td>
-            <td class="wrap-cell">${record.sample.bean ? `<span class="truncate">${escapeHtml(record.sample.bean)}</span>` : "—"}</td>
-            <td>${escapeHtml(formatDate(record.createdAt))}</td>
-            <td>
+            ${options.selectable ? `<td class="select-cell" data-label="对比"><input type="checkbox" data-history-select="${escapeHtml(record.id)}" ${state.selectedHistoryIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
+            <td data-label="用户">${escapeHtml(record.user.id)}</td>
+            <td data-label="设备"><span class="dot" style="background:${Core.normalizeHexColor(record.grinder.color)}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
+            <td data-label="刻度">${escapeHtml(record.grinder.setting)}</td>
+            <td data-label="回收总重" class="num">${formatNumber(record.totalG, 2)} g</td>
+            <td data-label="极细粉" class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
+            <td data-label="等级">${qualityChip(record.metrics.quality)}</td>
+            <td data-label="样品" class="wrap-cell">${record.sample.bean ? `<span class="truncate">${escapeHtml(record.sample.bean)}</span>` : "—"}</td>
+            <td data-label="日期">${escapeHtml(formatDate(record.createdAt))}</td>
+            <td data-label="操作">
               <div class="row-actions">
                 <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
                 ${options.community
@@ -1540,6 +1584,42 @@ function recordTable(records, options = {}) {
         }).join("")}
       </tbody>
     </table>`;
+}
+
+function bindHistorySelection(container) {
+  container.querySelectorAll("[data-history-select]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const id = checkbox.dataset.historySelect;
+      if (checkbox.checked && state.selectedHistoryIds.size >= MAX_COMPARE_RECORDS) {
+        checkbox.checked = false;
+        toast(`最多同时选择 ${MAX_COMPARE_RECORDS} 条测次。`, "error");
+        return;
+      }
+      if (checkbox.checked) state.selectedHistoryIds.add(id);
+      else state.selectedHistoryIds.delete(id);
+      updateHistorySelectionStatus();
+    });
+  });
+}
+
+function updateHistorySelectionStatus() {
+  const count = state.selectedHistoryIds.size;
+  $("historySelectionStatus").textContent = `已选择 ${count} / ${MAX_COMPARE_RECORDS} 条（至少选择 2 条）`;
+  $("compareHistorySelectionBtn").disabled = count < 2;
+}
+
+function clearHistorySelection() {
+  state.selectedHistoryIds.clear();
+  renderHistory();
+  renderMultiCompare();
+}
+
+function compareHistorySelection() {
+  if (state.selectedHistoryIds.size < 2) {
+    toast("请至少选择两条记录。", "error");
+    return;
+  }
+  switchTab("compare");
 }
 
 function bindRecordTableActions(container, community) {
@@ -1752,6 +1832,7 @@ function swapCompare() {
 }
 
 function renderCompare() {
+  renderMultiCompare();
   const a = findAnyRecord($("cmpRecordA").value);
   const b = findAnyRecord($("cmpRecordB").value);
   if (a && b && new Date(a.createdAt) > new Date(b.createdAt)) {
@@ -1788,6 +1869,20 @@ function renderCompare() {
     { ...groupA, color: colorA },
     { ...groupB, color: colorB }
   ], "pct");
+}
+
+function renderMultiCompare() {
+  const records = [...state.selectedHistoryIds]
+    .map((id) => state.store.records.find((record) => record.id === id))
+    .filter(Boolean)
+    .slice(0, MAX_COMPARE_RECORDS);
+  $("multiCompareLegend").innerHTML = records.map((record, index) => `
+    <span class="multi-legend-item">
+      <i style="background:${paletteForIndex(index)}"></i>
+      Z${index + 1} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}
+      · ${escapeHtml(record.grinder.setting)} · ${escapeHtml(formatDate(record.createdAt))}
+    </span>`).join("");
+  drawMultiRecord3D($("canvasCmpMulti3d"), records, $("cmpUnit")?.value || "pct", $("multiCompareNote"));
 }
 
 function deltaCard(label, value) {
@@ -3103,6 +3198,102 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
   ctx.font = `${compact ? 8 : 9}px sans-serif`;
   ctx.textAlign = "right";
   ctx.fillText("Z：细（近）→ 粗（远）", width - 7, compact ? 31 : 35);
+}
+
+function drawMultiRecord3D(canvas, records, unit = "pct", noteElement = null) {
+  const { ctx, width, height } = setupCanvas(canvas);
+  const rows = (records || []).slice(0, MAX_COMPARE_RECORDS);
+  if (rows.length < 2) {
+    drawEmptyCanvas(ctx, width, height, "请在历史记录中选择 2–10 条测次");
+    if (noteElement) noteElement.textContent = "筛选记录后勾选需要对比的测次，再点击“对比所选”。";
+    return;
+  }
+  const sieves = Core.getRecordSieves(rows[0]);
+  const compatible = rows.every((record) => {
+    const candidate = Core.getRecordSieves(record);
+    return candidate.length === sieves.length &&
+      candidate.every((sieve, index) => sieve.range === sieves[index].range);
+  });
+  if (!compatible) {
+    drawEmptyCanvas(ctx, width, height, "所选记录筛孔区间不同，不能逐档对比");
+    if (noteElement) noteElement.textContent = "请仅选择使用相同筛网孔径配置的记录。";
+    return;
+  }
+  const valuesFor = (record) => sieves.map((sieve) => unit === "pct"
+    ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
+    : (record.weightsGrams[sieve.key] || 0));
+  const maxValue = Math.max(...rows.flatMap(valuesFor), 1) * 1.12;
+  const compact = width < 520;
+  const pad = { left: compact ? 40 : 58, right: compact ? 44 : 72, top: 24, bottom: compact ? 40 : 54 };
+  const depthTotal = Math.min(width * 0.22, height * 0.3);
+  const stepX = depthTotal / Math.max(1, rows.length);
+  const stepY = stepX * 0.55;
+  const plotW = width - pad.left - pad.right - depthTotal;
+  const plotH = height - pad.top - pad.bottom - depthTotal * 0.55;
+  const cellW = plotW / sieves.length;
+  const barW = Math.max(4, Math.min(46, cellW * 0.48));
+  const baseY = height - pad.bottom;
+  const scaleY = plotH / maxValue;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.strokeStyle = "#3a2f26";
+  ctx.fillStyle = "#a89880";
+  ctx.font = `${compact ? 8 : 10}px sans-serif`;
+  ctx.textAlign = "right";
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const value = maxValue * tick / 4;
+    const y = baseY - value * scaleY;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+    ctx.fillText(`${formatPlainNumber(value, unit === "pct" ? 0 : 1)}${unit === "pct" ? "%" : "g"}`, pad.left - 5, y + 3);
+  }
+
+  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex -= 1) {
+    const values = valuesFor(rows[rowIndex]);
+    const offsetX = rowIndex * stepX;
+    const offsetY = rowIndex * stepY;
+    const color = paletteForIndex(rowIndex);
+    values.forEach((value, index) => {
+      const barH = value * scaleY;
+      const x = pad.left + cellW * (index + 0.5) - barW / 2 + offsetX;
+      const y = baseY - offsetY;
+      const prismX = Math.max(2, stepX * 0.42);
+      const prismY = Math.max(1, stepY * 0.42);
+      ctx.fillStyle = shadeColor(color, 0.68);
+      ctx.beginPath();
+      ctx.moveTo(x + barW, y - barH);
+      ctx.lineTo(x + barW + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW + prismX, y - prismY);
+      ctx.lineTo(x + barW, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = shadeColor(color, 1.12);
+      ctx.beginPath();
+      ctx.moveTo(x, y - barH);
+      ctx.lineTo(x + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW + prismX, y - barH - prismY);
+      ctx.lineTo(x + barW, y - barH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y - barH, barW, barH);
+    });
+    ctx.fillStyle = "#efe6da";
+    ctx.font = `${compact ? 7 : 9}px sans-serif`;
+    ctx.textAlign = "left";
+    ctx.fillText(`Z${rowIndex + 1}`, pad.left + plotW + offsetX + 4, baseY - offsetY + 2);
+  }
+  ctx.fillStyle = "#a89880";
+  ctx.font = `${compact ? 8 : 10}px sans-serif`;
+  ctx.textAlign = "center";
+  sieves.forEach((sieve, index) => {
+    ctx.fillText(sieve.shortLabel, pad.left + cellW * (index + 0.5), baseY + 18);
+  });
+  if (noteElement) {
+    noteElement.textContent = `${rows.length} 条测次已沿 Z 轴分别展示；Z1 为选择列表中的第一条，Z${rows.length} 为最后一条。`;
+  }
 }
 
 function drawOverlapCompare(canvas, recordA, recordB, unit, requestedColorA, requestedColorB) {
