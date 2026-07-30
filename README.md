@@ -1,13 +1,15 @@
 # Grind-PSD
 
-Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。v6.2 暂停网络上传，账户、设备目录和全部测量记录仅保存在当前浏览器。
+Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。v7.0 采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
 
-## v6.2 功能
+## v7.0 功能
 
-- 本地账户：首次使用可注册本机 ID；勾选“在此设备保存该 ID”后，后续打开自动恢复登录，不重复显示登录流程。
+- 云端账户：邮箱和密码由 Supabase Auth 管理，自定义用户 ID 写入个人档案。
 - 手动启动：打开应用后保持在主界面，只有点击“开始称测”才进入设备、刻度和六分段称重流程。
 - 单轮结束：保存记录后关闭称测流程，不自动开始下一轮。
-- 本地数据：品牌、型号、刻度、用户和测量记录写入浏览器 `localStorage`；支持 JSON/CSV 导出及 JSON 导入。
+- 本地优先：品牌、型号、刻度和测量记录先写入浏览器 `localStorage`；断网仍可使用，登录联网后与 Supabase 核对。
+- 数据隔离：所有业务表启用 RLS，只允许认证用户读写 `auth.uid()` 对应数据。
+- 数据交换：磨豆机、筛网组、测次和粒径分段采用独立共享数据模型；`source_app` 标记来源应用，其他项目可在同一用户授权下复用。
 - 图表：单条柱状图、记录详情阵列及最多 10 条记录的 3D 多测次对比。
 - 紧凑记录：历史记录默认仅显示时间、型号/刻度和可靠性，点击后展开完整详情；筛选与排序收纳在弹窗中。
 - 严格比例：全部 Canvas 图表的 CSS 显示尺寸与内部像素画布均固定为宽高 2:1；窗口尺寸变化时按当前容器宽度重新计算。
@@ -28,11 +30,13 @@ Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和�
 
 五张筛网产生六份样品：五层筛上物与最后底盘筛下物。默认80目筛上为180–300 µm，筛下极细粉为<180 µm。跨设备比较以实际孔径区间和相同筛分方法为准；自定义筛网必须填写孔径，系统按相邻孔径自动生成区间。
 
-## 数据与隐私
+## 数据、同步与隐私
 
-v6.2 不包含上传、自动同步、GitHub 授权、线上编辑或删除功能。清除浏览器站点数据会删除本地账户与记录，因此重要数据应定期导出 JSON 备份。不同浏览器或设备之间不会自动同步。
+v7.0 的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
 
-仓库中的 `data/database.json` 仅作为旧版兼容文件和未来方案预留；v6.2 运行时不会把新记录写入该文件。
+云端结构包含 `profiles`、`grinders`、`sieve_sets`、`measurements`、`measurement_fractions`、`app_settings`、`sync_tombstones` 和 `data_schema_versions`。旧五段数据存入 `legacy_payload` 并标记为 `legacy-five-bin`，不会伪造拆分。
+
+仓库中的 `data/database.json` 仅作为旧版兼容文件，不再是个人数据同步目标。
 
 ## 部署
 
@@ -42,6 +46,7 @@ v6.2 不包含上传、自动同步、GitHub 授权、线上编辑或删除功�
 
 ```bash
 node --check assets/psd-core.js
+node --check assets/supabase-sync.js
 node --check assets/app-v5.js
 node tests/test_core.js
 python -m unittest discover -s tests -p "test_*.py"
@@ -50,4 +55,4 @@ python -m unittest discover -s tests -p "test_*.py"
 ## 许可
 
 - 程序代码：MIT，见 [`LICENSE`](LICENSE)。
-- 既有社区数据许可说明保留在 [`DATA_LICENSE.md`](DATA_LICENSE.md)，但 v6.2 不提供数据上传入口。
+- 既有社区数据许可说明保留在 [`DATA_LICENSE.md`](DATA_LICENSE.md)。

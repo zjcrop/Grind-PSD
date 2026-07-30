@@ -32,12 +32,13 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v62_network_first_shell(self):
+    def test_service_worker_uses_v70_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v6.2.0", service_worker)
+        self.assertIn("grind-psd-shell-v7.0.0", service_worker)
+        self.assertIn("./assets/supabase-sync.js", service_worker)
         self.assertRegex(
             service_worker,
             r'endsWith\("/assets/app-v5\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',

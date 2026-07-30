@@ -15,6 +15,7 @@
   <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="./assets/styles-v5.css">
   <script src="./assets/psd-core.js" defer></script>
+  <script src="./assets/supabase-sync.js" defer></script>
   <script src="./assets/app-v5.js" defer></script>
 </head>
 <body>
@@ -24,8 +25,8 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v6.2</span></h1>
-        <p>粉径分布分析器 · 五筛六分段 · 本地数据</p>
+        <h1>Grind-PSD <span class="version">v7.0</span></h1>
+        <p>粉径分布分析器 · 五筛六分段 · 本地优先/云端同步</p>
       </div>
     </div>
     <div class="top-actions">
@@ -49,7 +50,7 @@
 
   <div class="status-strip" id="statusStrip" role="status">
     <span class="status-dot offline" id="networkDot"></span>
-    <span id="networkText">本地保存模式 · 数据不上传</span>
+    <span id="networkText">本地优先 · 登录后安全同步</span>
     <span class="status-spacer"></span>
     <span id="activeUserText">尚未登录</span>
   </div>
@@ -339,9 +340,9 @@
           <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div>
-        <span class="eyebrow">Grind-PSD v6.2</span>
-          <h2 id="authTitle">登录或注册测量 ID</h2>
-          <p>用户 ID 与测量记录仅保存在当前浏览器；本机已登录时下次直接进入主界面。</p>
+        <span class="eyebrow">Grind-PSD v7.0</span>
+          <h2 id="authTitle">登录或注册云端账户</h2>
+          <p>测量仍先保存在本机；登录后通过 Supabase RLS 同步到你的专属空间。</p>
         </div>
       </div>
       <div class="segmented auth-switch" role="tablist" aria-label="登录或注册">
@@ -350,15 +351,19 @@
       </div>
       <div class="auth-network" id="authNetworkStatus">
         <span class="status-dot syncing"></span>
-        <span>本地账户模式：不连接上传服务。</span>
+        <span>正在检查安全连接…</span>
       </div>
 
       <section id="authLoginPanel">
         <label class="field">
-          <span>用户 ID <em>必填</em></span>
-          <input type="text" id="loginUserId" maxlength="48" autocomplete="username" list="knownUserIds" placeholder="输入已注册或本机保存的 ID">
+          <span>邮箱 <em>必填</em></span>
+          <input type="email" id="loginUserId" maxlength="160" autocomplete="email" placeholder="name@example.com">
           <datalist id="knownUserIds"></datalist>
-          <span class="field-help" id="loginUserHint">可从本机已保存的 ID 中选择。</span>
+          <span class="field-help" id="loginUserHint">使用 Supabase Auth 登录；密码不会保存到应用。</span>
+        </label>
+        <label class="field">
+          <span>密码 <em>必填</em></span>
+          <input type="password" id="loginPassword" minlength="8" maxlength="128" autocomplete="current-password">
         </label>
         <label class="check-row">
           <input type="checkbox" id="rememberLoginInput" checked>
@@ -373,9 +378,17 @@
       <section id="authRegisterPanel" hidden>
         <div class="form-grid compact">
           <label class="field full">
-            <span>新用户 ID <em>必填</em></span>
+            <span>用户 ID <em>必填</em></span>
             <input type="text" id="registerUserId" maxlength="48" autocomplete="username" placeholder="2–48 位小写字母、数字、_ 或 -">
-            <span class="field-help uniqueness" id="registerIdStatus">仅在当前浏览器内检查 ID 是否重复。</span>
+            <span class="field-help uniqueness" id="registerIdStatus">ID 将在云端全局判重。</span>
+          </label>
+          <label class="field full">
+            <span>邮箱 <em>必填</em></span>
+            <input type="email" id="registerEmail" maxlength="160" autocomplete="email" placeholder="name@example.com">
+          </label>
+          <label class="field full">
+            <span>密码 <em>必填</em></span>
+            <input type="password" id="registerPassword" minlength="8" maxlength="128" autocomplete="new-password" placeholder="至少 8 位">
           </label>
           <label class="field full">
             <span>显示名称 <i>可选</i></span>
@@ -383,8 +396,8 @@
           </label>
         </div>
         <div class="auth-explain">
-          <strong>本地注册说明</strong>
-          <p>ID 仅在当前浏览器中注册和判重，不上传服务器；清除浏览器站点数据会同时清除账户与测量记录。</p>
+          <strong>云端注册说明</strong>
+          <p>邮箱由 Supabase Auth 管理；业务数据受 RLS 隔离。清除浏览器数据不会删除云端记录。</p>
         </div>
         <div class="modal-foot">
           <button class="ghost left" id="authRegisterExitBtn" type="button">退出，仅浏览</button>
