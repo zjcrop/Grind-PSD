@@ -23,7 +23,7 @@ jobs:
       - name: Validate static application
         run: |
           node --check assets/psd-core.js
-          node --check assets/app-v4.js
+          node --check assets/app-v5.js
           node tests/test_core.js
           python3 -m json.tool data/standard.json > /dev/null
           python3 -m json.tool data/record.schema.json > /dev/null
