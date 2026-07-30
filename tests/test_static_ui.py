@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v6_network_first_shell(self):
+    def test_service_worker_uses_v61_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v6.0.0", service_worker)
+        self.assertIn("grind-psd-shell-v6.1.0", service_worker)
         self.assertRegex(
             service_worker,
             r'endsWith\("/assets/app-v5\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
@@ -72,6 +72,21 @@ class StaticUiTests(unittest.TestCase):
         )[0]
         self.assertIn("点击“开始称测”可进行下一次测量", save_block)
         self.assertNotIn("openWizard({ preferRecent: true })", save_block)
+
+    def test_multi_record_compare_and_mobile_cards(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
+        self.assertIn("MAX_COMPARE_RECORDS = 10", script)
+        self.assertNotIn("activateTab(", script)
+        self.assertIn('id="canvasCmpMulti3d"', html)
+        self.assertIn("function drawMultiRecord3D(", script)
+        self.assertIn(".record-table td::before", styles)
+        for element_id in (
+            "historyBrandFilter", "historyModelFilter", "historyDateFrom",
+            "historyDateTo", "historySort", "compareHistorySelectionBtn",
+        ):
+            self.assertRegex(html, rf"""\bid=["']{element_id}["']""")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v6.0</span></h1>
+        <h1>Grind-PSD <span class="version">v6.1</span></h1>
         <p>粉径分布分析器 · 五筛六分段 · 本地数据</p>
       </div>
     </div>
@@ -90,14 +90,18 @@
             <button class="danger small" id="clearRecordsBtn" type="button">清空本地记录</button>
           </div>
         </div>
-        <div class="filters">
+        <div class="filters history-filters">
           <label>
             <span>搜索</span>
             <input type="search" id="historySearch" placeholder="品牌、型号、刻度、咖啡豆…">
           </label>
           <label>
-            <span>磨豆机</span>
-            <select id="historyGrinderFilter"><option value="">全部磨豆机</option></select>
+            <span>品牌</span>
+            <select id="historyBrandFilter"><option value="">全部品牌</option></select>
+          </label>
+          <label>
+            <span>型号</span>
+            <select id="historyModelFilter"><option value="">全部型号</option></select>
           </label>
           <label>
             <span>质量等级</span>
@@ -110,6 +114,25 @@
               <option value="U">U · 未评级</option>
             </select>
           </label>
+          <label><span>起始日期</span><input type="date" id="historyDateFrom"></label>
+          <label><span>结束日期</span><input type="date" id="historyDateTo"></label>
+          <label>
+            <span>排序</span>
+            <select id="historySort">
+              <option value="date-desc">日期：新→旧</option>
+              <option value="date-asc">日期：旧→新</option>
+              <option value="brand-asc">品牌/型号：A→Z</option>
+              <option value="quality-desc">记录质量：高→低</option>
+              <option value="quality-asc">记录质量：低→高</option>
+            </select>
+          </label>
+        </div>
+        <div class="selection-toolbar">
+          <span id="historySelectionStatus">已选择 0 / 10 条（至少选择 2 条）</span>
+          <div class="panel-actions">
+            <button class="ghost small" id="clearHistorySelectionBtn" type="button">清除选择</button>
+            <button class="primary small" id="compareHistorySelectionBtn" type="button" disabled>对比所选</button>
+          </div>
         </div>
         <div id="historyContent" class="table-wrap"></div>
       </div>
@@ -155,6 +178,15 @@
     </section>
 
     <section id="tab-compare" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel">
+        <div class="panel-head wrap">
+          <h2>多设备 / 多测次 3D 对比 <span class="hint">每条测次沿 Z 轴深度独立并列，最多 10 条</span></h2>
+          <button class="ghost small" id="editCompareSelectionBtn" type="button">返回记录选择</button>
+        </div>
+        <div id="multiCompareLegend" class="multi-compare-legend"></div>
+        <div class="canvas-scroll"><canvas id="canvasCmpMulti3d" aria-label="最多十条测次沿 Z 轴并列的三维柱状图"></canvas></div>
+        <p class="note" id="multiCompareNote">请到“历史记录”中选择 2–10 条记录。</p>
+      </div>
       <div class="panel">
         <div class="panel-head wrap">
           <h2>双记录重叠对比 <span class="hint">完全重叠区域为灰色，高出部分使用对应测次颜色</span></h2>
@@ -331,7 +363,7 @@
           <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div>
-          <span class="eyebrow">Grind-PSD v6.0</span>
+          <span class="eyebrow">Grind-PSD v6.1</span>
           <h2 id="authTitle">登录或注册测量 ID</h2>
           <p>用户 ID 与测量记录仅保存在当前浏览器；本机已登录时下次直接进入主界面。</p>
         </div>
