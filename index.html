@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Grind-PSD：按统一五段筛分标准连续记录、共享与对比咖啡研磨粒径分布。">
+  <meta name="description" content="Grind-PSD：以五张筛网形成六个质量分段，记录与对比咖啡研磨粒径分布。">
   <meta name="theme-color" content="#100d0b">
   <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,8 +24,8 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v5.1</span></h1>
-        <p>粉径分布分析器 · 五段筛分法 · 本地数据</p>
+        <h1>Grind-PSD <span class="version">v6.0</span></h1>
+        <p>粉径分布分析器 · 五筛六分段 · 本地数据</p>
       </div>
     </div>
     <div class="top-actions">
@@ -75,7 +75,7 @@
           <div class="empty-state">
             <div class="empty-icon">◌</div>
             <strong>暂无称重记录</strong>
-            <span>点击“＋ 开始测量”，按设备 → 刻度 → 五档称重流程开始。</span>
+            <span>点击“＋ 开始测量”，按设备 → 刻度 → 六分段称重流程开始。</span>
           </div>
         </div>
       </div>
@@ -157,7 +157,7 @@
     <section id="tab-compare" class="tab-panel" role="tabpanel" hidden>
       <div class="panel">
         <div class="panel-head wrap">
-          <h2>双记录重叠对比 <span class="hint">重叠区域为混合色，高出部分保留对应记录颜色</span></h2>
+          <h2>双记录重叠对比 <span class="hint">完全重叠区域为灰色，高出部分使用对应测次颜色</span></h2>
           <label class="compact-field">
             <span>单位</span>
             <select id="cmpUnit">
@@ -168,13 +168,15 @@
         </div>
         <div class="compare-selectors">
           <label class="compare-card side-a">
-            <span class="compare-label">记录 A</span>
+            <span class="compare-label">较老记录 A（默认灰色）</span>
             <select id="cmpRecordA"></select>
+            <input type="color" id="cmpColorA" value="#8a8a8a" aria-label="较老记录颜色">
           </label>
           <button class="swap-button" id="swapCompareBtn" type="button" aria-label="交换两条对比记录">⇄</button>
           <label class="compare-card side-b">
-            <span class="compare-label">记录 B</span>
+            <span class="compare-label">较新记录 B（标记色）</span>
             <select id="cmpRecordB"></select>
+            <input type="color" id="cmpColorB" value="#d98e32" aria-label="较新记录颜色">
           </label>
         </div>
         <div class="canvas-scroll">
@@ -184,17 +186,10 @@
         <p class="note">投粉总量不同时必须使用“占比 %”比较。不同筛具、筛分时长或回收质量等级的数据只能作为探索性参考。</p>
       </div>
       <div class="panel">
-        <h2>两组刻度阵列并排对比</h2>
-        <div class="grid2">
-          <div class="mini-chart">
-            <h3 id="cmp3dTitleA">记录 A 所属磨豆机</h3>
-            <canvas id="canvasCmp3dA"></canvas>
-          </div>
-          <div class="mini-chart">
-            <h3 id="cmp3dTitleB">记录 B 所属磨豆机</h3>
-            <canvas id="canvasCmp3dB"></canvas>
-          </div>
-        </div>
+        <h2>刻度阵列重叠对比</h2>
+        <div class="canvas-scroll"><canvas id="canvasCmp3dA" aria-label="两次刻度阵列同坐标系重叠对比图"></canvas></div>
+        <canvas id="canvasCmp3dB" hidden></canvas>
+        <p class="note">两组数据使用同一 X/Y/Z 坐标系；共同高度为灰色，任一测次高出的部分使用该测次颜色。</p>
       </div>
     </section>
 
@@ -203,7 +198,7 @@
         <div class="summary-card"><span>公开用户</span><strong id="communityUserCount">0</strong></div>
         <div class="summary-card"><span>公开记录</span><strong id="communityRecordCount">0</strong></div>
         <div class="summary-card"><span>数据库更新时间</span><strong id="communityUpdatedAt">—</strong></div>
-        <div class="summary-card"><span>当前标准</span><strong>PSD-SIEVE v1</strong></div>
+        <div class="summary-card"><span>当前标准</span><strong>PSD-SIEVE v2</strong></div>
       </div>
       <div class="panel">
         <div class="panel-head wrap">
@@ -284,10 +279,10 @@
       <div class="panel standard-hero">
         <div>
           <span class="eyebrow">固定比较口径</span>
-          <h2>Grind-PSD 五段筛分标准 v1</h2>
+          <h2>Grind-PSD 五筛六分段标准 v2</h2>
           <p>本项目沿用你原始工具的 18 / 24 / 35 / 60 目标签与五个标称粒径区间。公开数据库以区间边界为判断依据，不将“目数”自动换算成其他国家的标准筛孔径。</p>
         </div>
-        <div class="standard-id"><span>standardId</span><code>grind-psd-sieve-v1</code></div>
+        <div class="standard-id"><span>standardId</span><code>grind-psd-sieve-v2</code></div>
       </div>
       <div class="grid2">
         <div class="panel">
@@ -315,8 +310,8 @@
           <li><strong>准备与清洁</strong><span>清理磨豆机、筛具和接粉盘；避免上一批残粉污染。</span></li>
           <li><strong>记录投粉</strong><span>建议 10.00 g 或 15.00 g，使用 0.01 g 分辨率电子秤。</span></li>
           <li><strong>固定方法</strong><span>保持同一筛具、相同动作或设备、相同时长；不同方法不得直接并入同一趋势线。</span></li>
-          <li><strong>逐层称重</strong><span>依次记录五档筛上/底盘重量，不以百分比代替原始克重。</span></li>
-          <li><strong>核对回收率</strong><span>检查五档合计与投粉量的差异，并根据质量等级决定是否公开提交。</span></li>
+          <li><strong>逐层称重</strong><span>五张筛网必须记录六份质量：每层筛上物加最后底盘筛下物。</span></li>
+          <li><strong>核对回收率</strong><span>检查六分段合计与投粉量的差异，并保留原始克重。</span></li>
           <li><strong>重复测量</strong><span>正式比较建议每个刻度至少 3 次独立重复，保留每次原始记录。</span></li>
         </ol>
         <p class="note source-note">
@@ -336,7 +331,7 @@
           <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div>
-          <span class="eyebrow">Grind-PSD v5.1</span>
+          <span class="eyebrow">Grind-PSD v6.0</span>
           <h2 id="authTitle">登录或注册测量 ID</h2>
           <p>用户 ID 与测量记录仅保存在当前浏览器；本机已登录时下次直接进入主界面。</p>
         </div>
@@ -555,7 +550,7 @@
             </label>
             <label class="field">
               <span>筛具/装置 <em>公开必填</em></span>
-              <input type="text" id="deviceInput" maxlength="80" value="Grind-PSD 五段筛具" placeholder="筛具品牌、型号或自制装置">
+              <input type="text" id="deviceInput" maxlength="80" value="Grind-PSD 五筛六分段筛具" placeholder="筛具品牌、型号或自制装置">
             </label>
             <label class="field">
               <span>筛分方法</span>
@@ -569,6 +564,15 @@
               <span>备注 <i>可选</i></span>
               <textarea id="notesInput" maxlength="500" rows="3" placeholder="静电处理、RDT、筛分异常、环境条件等"></textarea>
             </label>
+          </div>
+          <div class="field full sieve-editor">
+            <span>筛网目数与实测孔径 <i>可自定义</i></span>
+            <p class="field-help">按孔径从大到小填写。系统以本筛孔径和上一筛孔径自动生成筛上区间，并自动增加最后的筛下极细粉。</p>
+            <div id="sieveConfigRows"></div>
+            <div class="row">
+              <button class="ghost small" id="addSieveRowBtn" type="button">＋ 增加筛网</button>
+              <button class="ghost small" id="resetSieveRowsBtn" type="button">恢复 18/24/35/60/80 目</button>
+            </div>
           </div>
         </details>
         <div class="modal-foot">
@@ -587,11 +591,11 @@
           <div class="step-progress"><span class="on"></span><span class="on"></span><span class="on"></span></div>
         </div>
         <div class="weighing-table">
-          <div class="weighing-head"><span>筛分档 / 标称粒径区间</span><span>筛上粉重 g</span></div>
+          <div class="weighing-head"><span>筛分档 / 孔径区间</span><span>该分段粉重 g</span></div>
           <div id="weighRows"></div>
         </div>
         <div class="totalbar">
-          <div><span>五档合计</span><strong id="weightTotal">0.00 g</strong></div>
+          <div><span>全部筛上 + 筛下合计</span><strong id="weightTotal">0.00 g</strong></div>
           <div><span>质量回收率</span><strong id="recoveryTotal">—</strong></div>
           <div><span>预估等级</span><strong id="qualityPreview">U · 未评级</strong></div>
         </div>

@@ -1,12 +1,12 @@
 {
-  "schemaVersion": "3.0.0",
-  "standardId": "grind-psd-sieve-v1",
-  "standardVersion": "1.0.0",
-  "title": "Grind-PSD 咖啡研磨五段筛分标准 v1",
+  "schemaVersion": "4.0.0",
+  "standardId": "grind-psd-sieve-v2",
+  "standardVersion": "2.0.0",
+  "title": "Grind-PSD 咖啡研磨六分段筛分标准 v2",
   "measurementMethod": "manual_sieve_mass_fraction",
   "measurementUnit": "gram",
   "comparisonUnit": "mass_percent",
-  "principle": "逐层记录五个固定标称粒径区间的原始回收重量，并以五档回收总重为分母计算质量占比。公开比较必须保持筛具、筛分方法和时长可追溯。",
+  "principle": "五张筛网产生五份筛上物和一份最终筛下物，共六个质量分段。以全部回收总重为分母计算质量占比。",
   "labelPolicy": {
     "statement": "18 / 24 / 35 / 60 / 80 目为项目原始工具沿用的档位标签；数据库的实际比较边界以 nominalRangeUm 为准。",
     "warning": "不得把本项目的目数标签自动换算为 ASTM E11、ISO 3310 或其他国家标准筛孔径，也不得将不同区间体系混入同一 standardId。"
@@ -45,12 +45,20 @@
       "description": "通过 500 μm 档、留在 300 μm 档的重量。"
     },
     {
-      "id": "pan80_lt300_g",
-      "label": "80 目档底盘",
-      "nominalRangeUm": "<300",
-      "lowerBoundUm": null,
+      "id": "mesh80_retained_g",
+      "label": "80 目筛上",
+      "nominalRangeUm": "180-300",
+      "lowerBoundUm": 180,
       "upperBoundUm": 300,
-      "description": "通过 300 μm 档并落入底盘的极细粉重量。"
+      "description": "通过 300 μm 档、留在 180 μm 筛网上的重量。"
+    },
+    {
+      "id": "pan_lt180_g",
+      "label": "低于 80 目（筛下）",
+      "nominalRangeUm": "<180",
+      "lowerBoundUm": null,
+      "upperBoundUm": 180,
+      "description": "通过最后一道 180 μm 筛网并落入底盘的极细粉重量。"
     }
   ],
   "publicSubmissionRequirements": {
@@ -116,7 +124,8 @@
     "weightsGrams.mesh24_retained_g",
     "weightsGrams.mesh35_retained_g",
     "weightsGrams.mesh60_retained_g",
-    "weightsGrams.pan80_lt300_g",
+    "weightsGrams.mesh80_retained_g",
+    "weightsGrams.pan_lt180_g",
     "totalG",
     "license",
     "createdAt"

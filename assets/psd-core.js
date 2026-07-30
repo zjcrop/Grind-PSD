@@ -5,8 +5,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createGrindPsdCore() {
   "use strict";
 
-  const STANDARD_ID = "grind-psd-sieve-v1";
-  const SCHEMA_VERSION = "3.0.0";
+  const STANDARD_ID = "grind-psd-sieve-v2";
+  const SCHEMA_VERSION = "4.0.0";
   const DATA_LICENSE = "CC-BY-4.0";
 
   const SIEVES = Object.freeze([
@@ -55,15 +55,26 @@
       color: "#ffd166"
     }),
     Object.freeze({
-      key: "pan80_lt300_g",
+      key: "mesh80_retained_g",
       legacyKey: "80",
       mesh: 80,
-      apertureUm: null,
-      label: "80 目档底盘",
-      shortLabel: "极细粉",
-      range: "< 300 μm",
-      description: "极细粉段",
+      apertureUm: 180,
+      label: "80 目筛上",
+      shortLabel: "80目筛上",
+      range: "180–300 μm",
+      description: "通过60目筛、留在80目筛上的细粉",
       color: "#e05d5d"
+    }),
+    Object.freeze({
+      key: "pan_lt180_g",
+      legacyKey: "pan",
+      mesh: null,
+      apertureUm: null,
+      label: "低于 80 目（筛下）",
+      shortLabel: "<80目",
+      range: "< 180 μm",
+      description: "通过最后一道80目筛的极细粉",
+      color: "#c77dff"
     })
   ]);
 
@@ -101,9 +112,9 @@
     return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
   }
 
-  function normalizeWeights(input = {}) {
+  function normalizeWeights(input = {}, sieves = SIEVES) {
     const weights = {};
-    SIEVES.forEach((sieve) => {
+    sieves.forEach((sieve) => {
       const direct = input[sieve.key];
       const legacy = input[sieve.legacyKey] ?? input[sieve.mesh];
       weights[sieve.key] = round(toNumber(direct ?? legacy), 2);
@@ -111,9 +122,9 @@
     return weights;
   }
 
-  function calculatePercentages(weights, totalG) {
+  function calculatePercentages(weights, totalG, sieves = SIEVES) {
     const percentages = {};
-    SIEVES.forEach((sieve) => {
+    sieves.forEach((sieve) => {
       percentages[sieve.key.replace(/_g$/, "_pct")] = totalG
         ? round((weights[sieve.key] || 0) / totalG * 100, 2)
         : 0;
@@ -160,7 +171,7 @@
     };
   }
 
-  function calculateMetrics(weights, totalG, sample = {}) {
+  function calculateMetrics(weights, totalG, sample = {}, sieves = SIEVES) {
     if (!totalG) {
       return {
         coarsePct: 0,
@@ -172,7 +183,7 @@
     }
 
     const pct = (key) => round((weights[key] || 0) / totalG * 100, 2);
-    const mode = SIEVES.reduce((best, sieve) => {
+    const mode = sieves.reduce((best, sieve) => {
       const weight = weights[sieve.key] || 0;
       return weight > best.weight ? { label: sieve.label, weight } : best;
     }, { label: "", weight: -1 });
@@ -184,10 +195,49 @@
         pct("mesh35_retained_g"),
         2
       ),
-      finesPct: pct("pan80_lt300_g"),
+      finesPct: pct(sieves.at(-1)?.key || "pan_lt180_g"),
       modeBin: mode.label,
       quality: calculateQuality(sample.doseG, totalG, sample)
     };
+  }
+
+  function createSieveProfile(rows = []) {
+    const sorted = rows.map((row) => ({
+      mesh: Number.isFinite(Number(row.mesh)) ? Number(row.mesh) : null,
+      apertureUm: Number(row.apertureUm)
+    })).filter((row) => Number.isFinite(row.apertureUm) && row.apertureUm > 0)
+      .sort((a, b) => b.apertureUm - a.apertureUm);
+    if (!sorted.length) return { id: STANDARD_ID, custom: false, bins: SIEVES };
+    const bins = sorted.map((row, index) => {
+      const upper = sorted[index - 1]?.apertureUm;
+      const meshName = row.mesh === null ? `${row.apertureUm} μm` : `${row.mesh} 目`;
+      return {
+        key: `${row.mesh === null ? `custom${index + 1}` : `mesh${row.mesh}`}_${Math.round(row.apertureUm)}_retained_g`,
+        mesh: row.mesh,
+        apertureUm: row.apertureUm,
+        label: `${meshName}筛上`,
+        shortLabel: row.mesh === null ? `${row.apertureUm}μm` : `${row.mesh}目筛上`,
+        range: upper ? `${row.apertureUm}–${upper} μm` : `≥ ${row.apertureUm} μm`,
+        description: upper ? "通过上一孔径、留在本筛网上" : "最上层筛网筛上物"
+      };
+    });
+    const last = sorted.at(-1);
+    bins.push({
+      key: `pan_lt${Math.round(last.apertureUm)}_g`,
+      mesh: null,
+      apertureUm: null,
+      label: `低于 ${last.mesh === null ? `${last.apertureUm} μm` : `${last.mesh} 目`}（筛下）`,
+      shortLabel: `<${last.apertureUm}μm`,
+      range: `< ${last.apertureUm} μm`,
+      description: "通过最后一道筛网的底盘极细粉"
+    });
+    return { id: `custom-${sorted.map((row) => `${row.mesh ?? "x"}-${row.apertureUm}`).join("_")}`, custom: true, bins };
+  }
+
+  function getRecordSieves(record) {
+    return Array.isArray(record?.sieveProfile?.bins) && record.sieveProfile.bins.length
+      ? record.sieveProfile.bins
+      : SIEVES;
   }
 
   function deriveSettingOrder(setting) {
@@ -215,7 +265,31 @@
   }
 
   function createRecord(input) {
-    const weightsGrams = normalizeWeights(input.weightsGrams);
+    const legacyFiveBin = !input.sieveProfile?.bins?.length
+      && input.weightsGrams?.pan80_lt300_g !== undefined
+      && input.weightsGrams?.mesh80_retained_g === undefined;
+    const legacyProfile = {
+      id: "grind-psd-sieve-v1",
+      custom: false,
+      legacy: true,
+      bins: [
+        ...SIEVES.slice(0, 4),
+        {
+          key: "pan80_lt300_g",
+          mesh: null,
+          apertureUm: null,
+          label: "低于 60 目（旧五段，未拆分）",
+          shortLabel: "<300μm旧档",
+          range: "< 300 μm",
+          description: "历史合并档，无法拆分为80目筛上与<180 μm"
+        }
+      ]
+    };
+    const sieveProfile = input.sieveProfile?.bins?.length
+      ? input.sieveProfile
+      : (legacyFiveBin ? legacyProfile : { id: STANDARD_ID, custom: false, bins: SIEVES });
+    const sieves = getRecordSieves({ sieveProfile });
+    const weightsGrams = normalizeWeights(input.weightsGrams, sieves);
     const totalG = round(sum(Object.values(weightsGrams)), 2);
     const createdAt = input.createdAt || new Date().toISOString();
     const rawSettingOrder = input.grinder?.settingOrder;
@@ -236,7 +310,8 @@
 
     return {
       schemaVersion: SCHEMA_VERSION,
-      standardId: STANDARD_ID,
+      standardId: sieveProfile.id || STANDARD_ID,
+      sieveProfile,
       id: cleanText(input.id, 80) || makeRecordId(),
       user: {
         id: normalizeUserId(input.user?.id),
@@ -252,8 +327,8 @@
       sample,
       weightsGrams,
       totalG,
-      percentages: calculatePercentages(weightsGrams, totalG),
-      metrics: calculateMetrics(weightsGrams, totalG, sample),
+      percentages: calculatePercentages(weightsGrams, totalG, sieves),
+      metrics: calculateMetrics(weightsGrams, totalG, sample, sieves),
       notes: cleanText(input.notes, 500),
       license: input.license === DATA_LICENSE ? DATA_LICENSE : null,
       createdAt,
@@ -264,7 +339,7 @@
 
   function normalizeRecord(input) {
     if (!input || typeof input !== "object") return null;
-    if (input.standardId && input.standardId !== STANDARD_ID) return null;
+    if (input.standardId && input.standardId !== STANDARD_ID && !String(input.standardId).startsWith("custom-") && input.standardId !== "grind-psd-sieve-v1") return null;
     const record = createRecord({
       ...input,
       id: input.id,
@@ -272,6 +347,7 @@
       grinder: input.grinder || {},
       sample: input.sample || {},
       weightsGrams: input.weightsGrams || input.weights || {},
+      sieveProfile: input.sieveProfile,
       source: typeof input.source === "string" ? input.source : "community"
     });
     if (!record.user.id || !record.grinder.brand || !record.grinder.model || !record.grinder.setting || record.totalG <= 0) {
@@ -348,6 +424,8 @@
     calculatePercentages,
     calculateQuality,
     calculateMetrics,
+    createSieveProfile,
+    getRecordSieves,
     deriveSettingOrder,
     makeRecordId,
     createRecord,
