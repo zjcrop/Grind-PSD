@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v72_network_first_shell(self):
+    def test_service_worker_uses_v721_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v7.2.0", service_worker)
+        self.assertIn("grind-psd-shell-v7.2.1", service_worker)
         self.assertIn("./assets/supabase-sync.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -127,6 +127,9 @@ class StaticUiTests(unittest.TestCase):
     def test_signup_redirects_to_project_directory(self):
         cloud = (ROOT / "assets" / "supabase-sync.js").read_text(encoding="utf-8")
         self.assertIn("function authRedirectUrl()", cloud)
+        self.assertIn("const SUPABASE_URL =", cloud)
+        self.assertNotRegex(cloud, r"\bconst\s+URL\s*=")
+        self.assertIn("new URL(", cloud)
         self.assertIn("redirect_to=${encodeURIComponent(authRedirectUrl())}", cloud)
         self.assertIn('hash.has("access_token")', cloud)
         self.assertIn('code === "otp_expired"', cloud)
