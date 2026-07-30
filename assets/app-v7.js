@@ -4,7 +4,7 @@
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "7.0.0";
+const APP_VERSION = "7.2.0";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -75,6 +75,10 @@ async function init() {
 
   if (state.migrationMessage) {
     setTimeout(() => toast(state.migrationMessage, "success"), 300);
+  }
+  const authNotice = Cloud?.authRedirectNotice?.();
+  if (authNotice?.message) {
+    setTimeout(() => toast(authNotice.message, authNotice.type === "error" ? "error" : "success"), 350);
   }
   prepareAuthModal();
   if (!state.identityConfirmed) setTimeout(() => openAuthModal(), 80);
@@ -737,22 +741,27 @@ async function uploadAllRecordsToCloud() {
     toast("当前离线，无法上传到服务器。", "error");
     return false;
   }
-  const owned = state.store.records.filter((record) => record.user?.id === state.store.user.id);
-  if (!owned.length) {
-    toast("当前账户没有可上传的本地记录。", "error");
+  // This is an explicit, user-initiated backup of the records held by this
+  // browser. Older records may still carry a local/legacy profile ID, so
+  // filtering by the newly authenticated handle incorrectly hides them.
+  // Supabase ownership is always taken from the authenticated JWT in
+  // Cloud.pushRecord; the legacy display ID never controls database access.
+  const localRecords = [...state.store.records];
+  if (!localRecords.length) {
+    toast("当前浏览器没有可上传的本地记录。", "error");
     return false;
   }
   setCloudSyncIndicator("syncing");
-  updateNetworkStatus(`正在上传并校验 ${owned.length} 条本地记录…`);
+  updateNetworkStatus(`正在上传并校验 ${localRecords.length} 条本地记录…`);
   try {
-    for (const record of owned) await pushAndVerifyRecord(record);
+    for (const record of localRecords) await pushAndVerifyRecord(record);
     setCloudSyncIndicator("success");
-    updateNetworkStatus(`云端校验完成 · ${owned.length} 条记录与本地一致`);
-    toast(`上传成功：${owned.length} 条服务器记录已回读并确认与本地一致。`, "success");
+    updateNetworkStatus(`云端校验完成 · ${localRecords.length} 条记录与本地一致`);
+    toast(`上传成功：${localRecords.length} 条服务器记录已回读并确认与本地一致。`, "success");
     renderAll();
     return true;
   } catch (error) {
-    const uploading = owned.find((record) => state.store.cloudSync?.[record.id]?.status === "uploading");
+    const uploading = localRecords.find((record) => state.store.cloudSync?.[record.id]?.status === "uploading");
     if (uploading) markCloudSync(uploading, "failed", { error: error.message });
     setCloudSyncIndicator("failed");
     updateNetworkStatus(`上传或云端校验失败，本地数据未受影响：${error.message}`);

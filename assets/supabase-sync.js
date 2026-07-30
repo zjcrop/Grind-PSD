@@ -6,6 +6,14 @@
   const SESSION_KEY = "grindPsdSupabaseSessionV1";
   const SOURCE_APP = "grind-psd";
   let session = null;
+  let redirectNotice = null;
+
+  function authRedirectUrl() {
+    const url = new URL("./", window.location.href);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  }
 
   function saveSession(value) {
     session = value && value.access_token ? value : null;
@@ -43,6 +51,36 @@
   }
 
   async function init() {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (hash.has("access_token")) {
+      const expiresIn = Number(hash.get("expires_in") || 0);
+      saveSession({
+        access_token: hash.get("access_token"),
+        refresh_token: hash.get("refresh_token"),
+        token_type: hash.get("token_type") || "bearer",
+        expires_in: expiresIn,
+        expires_at: expiresIn ? Math.floor(Date.now() / 1000) + expiresIn : null,
+        user: null
+      });
+      try {
+        const user = await request("/auth/v1/user", { method: "GET" });
+        saveSession({ ...session, user });
+        redirectNotice = { type: "success", message: "邮箱验证完成，云端会话已建立。" };
+      } catch (error) {
+        saveSession(null);
+        redirectNotice = { type: "error", message: "邮箱已验证，但登录会话建立失败，请使用邮箱和密码登录。" };
+      }
+      history.replaceState(null, "", `${location.pathname}${location.search}`);
+    } else if (hash.has("error")) {
+      const code = hash.get("error_code") || hash.get("error");
+      redirectNotice = {
+        type: "error",
+        message: code === "otp_expired"
+          ? "邮箱验证链接已失效，请在登录页重新注册或重发验证邮件。"
+          : `邮箱验证失败：${hash.get("error_description") || code}`
+      };
+      history.replaceState(null, "", `${location.pathname}${location.search}`);
+    }
     try { session = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (error) { session = null; }
     if (!session) return null;
     const expiresAt = Number(session.expires_at || 0) * 1000;
@@ -60,7 +98,7 @@
   }
 
   async function signUp(email, password, handle, displayName) {
-    const value = await request("/auth/v1/signup", {
+    const value = await request(`/auth/v1/signup?redirect_to=${encodeURIComponent(authRedirectUrl())}`, {
       method: "POST",
       body: JSON.stringify({
         email,
@@ -216,6 +254,7 @@
 
   window.GrindPSDCloud = {
     init, signIn, signUp, signOut, profile, pushRecord, verifyRecord, pullRecords,
+    authRedirectNotice: () => redirectNotice,
     isSignedIn: () => Boolean(session?.access_token),
     user: () => session?.user || null
   };
