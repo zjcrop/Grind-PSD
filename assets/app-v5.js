@@ -3,7 +3,7 @@
 // Grind-PSD v5 application shell and interaction state machine.
 const Core = window.GrindPSDCore;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "5.1.0";
+const APP_VERSION = "6.0.0";
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
 const LEGACY_KEYS = ["grindPsdAppV3", "grindPsdAppV2", "grindAnalyzerV1"];
@@ -102,10 +102,14 @@ function freshWizard() {
     bean: "",
     roastLevel: "",
     durationSec: 60,
-    sieveDevice: "Grind-PSD 五段筛具",
+    sieveDevice: "Grind-PSD 五筛六分段筛具",
     method: "手动水平往复筛分",
     replicate: 1,
     notes: "",
+    sieveProfile: Core.createSieveProfile(Core.SIEVES.filter((sieve) => sieve.apertureUm).map((sieve) => ({
+      mesh: sieve.mesh,
+      apertureUm: sieve.apertureUm
+    }))),
     weightsGrams: Core.normalizeWeights({})
   };
 }
@@ -478,6 +482,8 @@ function bindEvents() {
   $("cmpUnit").addEventListener("change", renderCompare);
   $("cmpRecordA").addEventListener("change", renderCompare);
   $("cmpRecordB").addEventListener("change", renderCompare);
+  $("cmpColorA").addEventListener("input", renderCompare);
+  $("cmpColorB").addEventListener("input", renderCompare);
   $("swapCompareBtn").addEventListener("click", swapCompare);
 
   ["communitySearch", "communityUserFilter", "communityBrandFilter", "communityGradeFilter"].forEach((id) => {
@@ -500,6 +506,21 @@ function bindEvents() {
   $("wizardExit3").addEventListener("click", exitMeasurementFlow);
   $("saveRecordBtn").addEventListener("click", saveWizardRecord);
   $("doseInput").addEventListener("input", updateWeightSummary);
+  $("addSieveRowBtn").addEventListener("click", () => {
+    const rows = readSieveConfigRows();
+    const smallest = Math.min(...rows.map((row) => Number(row.apertureUm)).filter(Number.isFinite));
+    rows.push({ mesh: "", apertureUm: Math.max(1, Math.round(smallest * 0.75)) });
+    state.wizard.sieveProfile = Core.createSieveProfile(rows);
+    renderSieveConfigRows();
+  });
+  $("resetSieveRowsBtn").addEventListener("click", () => {
+    state.wizard.sieveProfile = Core.createSieveProfile([
+      { mesh: 18, apertureUm: 1000 }, { mesh: 24, apertureUm: 800 },
+      { mesh: 35, apertureUm: 500 }, { mesh: 60, apertureUm: 300 },
+      { mesh: 80, apertureUm: 180 }
+    ]);
+    renderSieveConfigRows();
+  });
 
 
   document.querySelectorAll("[data-close]").forEach((button) => {
@@ -960,7 +981,7 @@ function clearWizardFields() {
   $("beanInput").value = "";
   $("roastInput").value = "";
   $("durationInput").value = "60";
-  $("deviceInput").value = "Grind-PSD 五段筛具";
+  $("deviceInput").value = "Grind-PSD 五筛六分段筛具";
   $("methodInput").value = "手动水平往复筛分";
   $("replicateInput").value = "1";
   $("notesInput").value = "";
@@ -1077,10 +1098,11 @@ function renderWizardStep2() {
   $("beanInput").value = state.wizard.bean || "";
   $("roastInput").value = state.wizard.roastLevel || "";
   $("durationInput").value = state.wizard.durationSec || 60;
-  $("deviceInput").value = state.wizard.sieveDevice || "Grind-PSD 五段筛具";
+  $("deviceInput").value = state.wizard.sieveDevice || "Grind-PSD 五筛六分段筛具";
   $("methodInput").value = state.wizard.method || "手动水平往复筛分";
   $("replicateInput").value = state.wizard.replicate || 1;
   $("notesInput").value = state.wizard.notes || "";
+  renderSieveConfigRows();
 
   const dials = unique(state.store.records
     .filter((record) => record.grinder.brand === state.wizard.brand && record.grinder.model === state.wizard.model)
@@ -1096,6 +1118,31 @@ function renderWizardStep2() {
     });
   });
   setTimeout(() => $("dialInput").focus(), 40);
+}
+
+function renderSieveConfigRows() {
+  const rows = state.wizard.sieveProfile.bins.filter((bin) => Number.isFinite(Number(bin.apertureUm)));
+  $("sieveConfigRows").innerHTML = rows.map((bin, index) => `
+    <div class="addrow sieve-config-row">
+      <label>目数<input type="number" min="1" step="1" value="${bin.mesh ?? ""}" data-sieve-mesh="${index}" placeholder="自定义"></label>
+      <label>孔径 μm<input type="number" min="1" step="1" value="${bin.apertureUm}" data-sieve-aperture="${index}"></label>
+      <button class="ghost small" type="button" data-remove-sieve="${index}" ${rows.length <= 1 ? "disabled" : ""}>删除</button>
+    </div>`).join("");
+  $("sieveConfigRows").querySelectorAll("[data-remove-sieve]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const current = readSieveConfigRows();
+      current.splice(Number(button.dataset.removeSieve), 1);
+      state.wizard.sieveProfile = Core.createSieveProfile(current);
+      renderSieveConfigRows();
+    });
+  });
+}
+
+function readSieveConfigRows() {
+  return [...$("sieveConfigRows").querySelectorAll(".sieve-config-row")].map((row) => ({
+    mesh: row.querySelector("[data-sieve-mesh]").value,
+    apertureUm: row.querySelector("[data-sieve-aperture]").value
+  })).filter((row) => Number(row.apertureUm) > 0);
 }
 
 function readWizardStep2() {
@@ -1122,11 +1169,25 @@ function readWizardStep2() {
   state.wizard.method = Core.cleanText($("methodInput").value, 120);
   state.wizard.replicate = Math.max(1, Math.trunc(Core.toNumber($("replicateInput").value) || 1));
   state.wizard.notes = Core.cleanText($("notesInput").value, 500);
+  const sieveRows = readSieveConfigRows();
+  if (!sieveRows.length) {
+    toast("请至少保留一张筛网并填写孔径。", "error");
+    return false;
+  }
+  const apertureValues = sieveRows.map((row) => Number(row.apertureUm));
+  if (new Set(apertureValues).size !== apertureValues.length) {
+    toast("筛网孔径不能重复。", "error");
+    return false;
+  }
+  state.wizard.sieveProfile = Core.createSieveProfile(sieveRows);
+  state.wizard.weightsGrams = Core.normalizeWeights({}, state.wizard.sieveProfile.bins);
+  buildWeighRows();
   return true;
 }
 
 function buildWeighRows() {
-  $("weighRows").innerHTML = Core.SIEVES.map((sieve) => `
+  const sieves = state.wizard?.sieveProfile?.bins || Core.SIEVES;
+  $("weighRows").innerHTML = sieves.map((sieve) => `
     <label class="weighing-row">
       <span class="weighing-name">
         <strong>${escapeHtml(sieve.label)}</strong>
@@ -1213,6 +1274,7 @@ async function saveWizardRecord() {
       replicate: state.wizard.replicate
     },
     weightsGrams: state.wizard.weightsGrams,
+    sieveProfile: state.wizard.sieveProfile,
     notes: state.wizard.notes,
     license: state.wizard.mode === "edit-remote" ? Core.DATA_LICENSE : null,
     source: state.wizard.mode === "edit-remote" ? "local-remote-edit" : "local",
@@ -1283,7 +1345,7 @@ function renderCurrent() {
         <div class="empty-state">
           <div class="empty-icon">◌</div>
           <strong>暂无称重记录</strong>
-          <span>点击“＋ 开始测量”，按设备 → 刻度 → 五档称重流程开始。</span>
+          <span>点击“＋ 开始测量”，按设备 → 刻度 → 六分段称重流程开始。</span>
         </div>
       </div>`;
     return;
@@ -1297,7 +1359,7 @@ function renderCurrent() {
     state.identityConfirmed &&
     record.user.id === state.store.user.id
   );
-  const rows = Core.SIEVES.map((sieve) => {
+  const rows = Core.getRecordSieves(record).map((sieve) => {
     const weight = record.weightsGrams[sieve.key] || 0;
     const pct = record.totalG ? weight / record.totalG * 100 : 0;
     return `
@@ -1337,7 +1399,7 @@ function renderCurrent() {
       </table>
       <div class="metrics-grid">
         ${metricCard("投粉量", `${formatNumber(record.sample.doseG, 2)} g`)}
-        ${metricCard("五档回收", `${formatNumber(record.totalG, 2)} g`)}
+        ${metricCard("分段回收", `${formatNumber(record.totalG, 2)} g`)}
         ${metricCard("质量回收率", quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`)}
         ${metricCard("≥1000 μm", `${formatNumber(record.metrics.coarsePct, 2)}%`)}
         ${metricCard("500–1000 μm", `${formatNumber(record.metrics.bodyPct, 2)}%`)}
@@ -1692,7 +1754,18 @@ function swapCompare() {
 function renderCompare() {
   const a = findAnyRecord($("cmpRecordA").value);
   const b = findAnyRecord($("cmpRecordB").value);
-  drawOverlapCompare($("canvasCmp"), a, b, $("cmpUnit").value);
+  if (a && b && new Date(a.createdAt) > new Date(b.createdAt)) {
+    $("cmpRecordA").value = b.id;
+    $("cmpRecordB").value = a.id;
+    return renderCompare();
+  }
+  const colorA = Core.normalizeHexColor($("cmpColorA").value, "#8a8a8a");
+  let colorB = Core.normalizeHexColor($("cmpColorB").value, "#d98e32");
+  if (colorDistance(colorA, colorB) < 80) {
+    colorB = firstDistinctColor(colorA);
+    $("cmpColorB").value = colorB;
+  }
+  drawOverlapCompare($("canvasCmp"), a, b, $("cmpUnit").value, colorA, colorB);
 
   if (!a || !b) {
     $("compareMetrics").innerHTML = "";
@@ -1711,10 +1784,10 @@ function renderCompare() {
   const groups = groupRecords(getAllRecords());
   const groupA = groups.find((group) => group.key === Core.recordGroupKey(a));
   const groupB = groups.find((group) => group.key === Core.recordGroupKey(b));
-  $("cmp3dTitleA").textContent = `A · ${a.user.id} · ${a.grinder.brand} ${a.grinder.model}`;
-  $("cmp3dTitleB").textContent = `B · ${b.user.id} · ${b.grinder.brand} ${b.grinder.model}`;
-  drawArray3D($("canvasCmp3dA"), groupA, "pct");
-  drawArray3D($("canvasCmp3dB"), groupB, "pct");
+  drawArray3D($("canvasCmp3dA"), [
+    { ...groupA, color: colorA },
+    { ...groupB, color: colorB }
+  ], "pct");
 }
 
 function deltaCard(label, value) {
@@ -2759,7 +2832,8 @@ function drawBarChart(canvas, record, unit) {
   const pad = { left: 58, right: 22, top: 28, bottom: 58 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const values = Core.SIEVES.map((sieve) => {
+  const sieves = Core.getRecordSieves(record);
+  const values = sieves.map((sieve) => {
     return unit === "pct"
       ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
       : (record.weightsGrams[sieve.key] || 0);
@@ -2767,10 +2841,10 @@ function drawBarChart(canvas, record, unit) {
   const maxValue = Math.max(...values) * 1.16 || 1;
   drawGrid(ctx, pad, plotW, plotH, maxValue, unit);
   const color = Core.normalizeHexColor(record.grinder.color);
-  const groupW = plotW / Core.SIEVES.length;
+  const groupW = plotW / sieves.length;
   const barW = Math.min(72, groupW * 0.54);
 
-  Core.SIEVES.forEach((sieve, index) => {
+  sieves.forEach((sieve, index) => {
     const value = values[index];
     const barH = plotH * value / maxValue;
     const x = pad.left + groupW * (index + 0.5) - barW / 2;
@@ -2868,7 +2942,8 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
     }
   }
 
-  const values = (record) => Core.SIEVES.map((sieve) => {
+  const sieves = Core.getRecordSieves(groups[0].records[0]);
+  const values = (record) => sieves.map((sieve) => {
     if (!record) return 0;
     return unit === "pct"
       ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
@@ -2881,7 +2956,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
   maxValue = maxValue * 1.12 || 1;
 
   const compact = width < 520;
-  const countX = Core.SIEVES.length;
+  const countX = sieves.length;
   const countZ = Math.max(1, slots.length);
   const depthTotal = Math.min(width * 0.18, height * 0.28, 28 * countZ);
   const depthX = depthTotal / countZ;
@@ -2934,22 +3009,39 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
     const brightness = 0.58 + 0.42 * (1 - rowIndex / Math.max(1, countZ - 1));
     slots[rowIndex].forEach((record, groupIndex) => {
       if (!record) return;
-      const rowValues = values(record);
-      const baseColor = Core.normalizeHexColor(groups[groupIndex].color);
+      const rawValues = values(record);
+      const pairedValues = groups.length === 2 ? values(slots[rowIndex][1 - groupIndex]) : null;
+      const rowValues = pairedValues
+        ? rawValues.map((value, index) => groupIndex === 0
+          ? Math.min(value, pairedValues[index])
+          : Math.abs(value - pairedValues[index]))
+        : rawValues;
+      const baseOffsets = pairedValues && groupIndex === 1
+        ? rawValues.map((value, index) => Math.min(value, pairedValues[index]))
+        : rawValues.map(() => 0);
+      const baseColor = pairedValues && groupIndex === 0
+        ? "#777777"
+        : Core.normalizeHexColor(groups[groupIndex].color);
       const front = shadeColor(baseColor, brightness);
       const top = shadeColor(baseColor, brightness * 1.25);
       const side = shadeColor(baseColor, brightness * 0.72);
-      const groupOffset = (groupIndex - (groups.length - 1) / 2) * (barW + groupGap);
+      const groupOffset = groups.length === 2 ? 0 : (groupIndex - (groups.length - 1) / 2) * (barW + groupGap);
       for (let index = 0; index < countX; index += 1) {
         const value = rowValues[index];
         if (value <= 0) continue;
+        const segmentColor = pairedValues && groupIndex === 1
+          ? Core.normalizeHexColor(groups[rawValues[index] >= pairedValues[index] ? groupIndex : 0].color)
+          : baseColor;
+        const segmentFront = shadeColor(segmentColor, brightness);
+        const segmentTop = shadeColor(segmentColor, brightness * 1.25);
+        const segmentSide = shadeColor(segmentColor, brightness * 0.72);
         const barH = value * scaleY;
         const x = pad.left + cell * (index + 0.5) - barW / 2 + offsetX + groupOffset;
-        const y = baseY - offsetY;
+        const y = baseY - offsetY - baseOffsets[index] * scaleY;
         const prismX = Math.max(2, depthX * 0.48);
         const prismY = Math.max(1.5, depthY * 0.48);
         ctx.globalAlpha = groups.length > 1 ? 0.88 : 1;
-        ctx.fillStyle = side;
+        ctx.fillStyle = segmentSide;
         ctx.beginPath();
         ctx.moveTo(x + barW, y - barH);
         ctx.lineTo(x + barW + prismX, y - barH - prismY);
@@ -2957,7 +3049,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
         ctx.lineTo(x + barW, y);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = top;
+        ctx.fillStyle = segmentTop;
         ctx.beginPath();
         ctx.moveTo(x, y - barH);
         ctx.lineTo(x + prismX, y - barH - prismY);
@@ -2965,7 +3057,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
         ctx.lineTo(x + barW, y - barH);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = front;
+        ctx.fillStyle = segmentFront;
         ctx.fillRect(x, y - barH, barW, barH);
         ctx.globalAlpha = 1;
       }
@@ -2974,7 +3066,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
       ctx.beginPath();
       rowValues.forEach((value, index) => {
         const x = pad.left + cell * (index + 0.5) + offsetX + groupOffset;
-        const y = baseY - offsetY - value * scaleY;
+        const y = baseY - offsetY - (value + baseOffsets[index]) * scaleY;
         if (index === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
@@ -2994,7 +3086,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
   ctx.fillStyle = "#a89880";
   ctx.font = `${compact ? 8 : 10}px sans-serif`;
   ctx.textAlign = "center";
-  Core.SIEVES.forEach((sieve, index) => {
+  sieves.forEach((sieve, index) => {
     ctx.fillText(sieve.shortLabel, pad.left + cell * (index + 0.5), baseY + (compact ? 14 : 19));
     if (!compact) {
       ctx.font = "8px sans-serif";
@@ -3013,7 +3105,7 @@ function drawArray3D(canvas, groupInput, unit = "g", noteElement = null) {
   ctx.fillText("Z：细（近）→ 粗（远）", width - 7, compact ? 31 : 35);
 }
 
-function drawOverlapCompare(canvas, recordA, recordB, unit) {
+function drawOverlapCompare(canvas, recordA, recordB, unit, requestedColorA, requestedColorB) {
   const { ctx, width, height } = setupCanvas(canvas);
   if (!recordA || !recordB) {
     drawEmptyCanvas(ctx, width, height, "至少需要两条记录才能对比");
@@ -3024,7 +3116,15 @@ function drawOverlapCompare(canvas, recordA, recordB, unit) {
     ? (record.totalG ? (record.weightsGrams[sieve.key] || 0) / record.totalG * 100 : 0)
     : (record.weightsGrams[sieve.key] || 0);
   let maxValue = 0;
-  Core.SIEVES.forEach((sieve) => {
+  const sievesA = Core.getRecordSieves(recordA);
+  const sievesB = Core.getRecordSieves(recordB);
+  const compatible = sievesA.length === sievesB.length && sievesA.every((sieve, index) => sieve.range === sievesB[index].range);
+  if (!compatible) {
+    drawEmptyCanvas(ctx, width, height, "筛网孔径配置不同，不能直接逐档重叠");
+    return;
+  }
+  const sieves = sievesA;
+  sieves.forEach((sieve) => {
     maxValue = Math.max(maxValue, value(recordA, sieve), value(recordB, sieve));
   });
   maxValue = maxValue * 1.16 || 1;
@@ -3036,12 +3136,12 @@ function drawOverlapCompare(canvas, recordA, recordB, unit) {
   const plotH = height - pad.top - pad.bottom;
   drawGrid(ctx, pad, plotW, plotH, maxValue, unit);
 
-  const colorA = Core.normalizeHexColor(recordA.grinder.color, "#8ab4f8");
-  const colorB = Core.normalizeHexColor(recordB.grinder.color, "#e05d5d");
-  const mixed = mixColors(colorA, colorB);
-  const groupW = plotW / Core.SIEVES.length;
+  const colorA = Core.normalizeHexColor(requestedColorA, "#8a8a8a");
+  const colorB = Core.normalizeHexColor(requestedColorB, "#d98e32");
+  const mixed = "#777777";
+  const groupW = plotW / sieves.length;
   const barW = Math.min(72, groupW * 0.5);
-  Core.SIEVES.forEach((sieve, index) => {
+  sieves.forEach((sieve, index) => {
     const valueA = value(recordA, sieve);
     const valueB = value(recordB, sieve);
     const heightA = plotH * valueA / maxValue;
@@ -3071,8 +3171,18 @@ function drawOverlapCompare(canvas, recordA, recordB, unit) {
   drawLegend(ctx, [
     { color: colorA, label: `A · ${recordA.user.id} · ${recordA.grinder.brand} ${recordA.grinder.model} ${recordA.grinder.setting}` },
     { color: colorB, label: `B · ${recordB.user.id} · ${recordB.grinder.brand} ${recordB.grinder.model} ${recordB.grinder.setting}` },
-    { color: mixed, label: "重叠区域" }
+    { color: mixed, label: "完全重叠区域" }
   ], pad.left, 17, width - pad.right);
+}
+
+function colorDistance(colorA, colorB) {
+  const a = hexToRgb(colorA);
+  const b = hexToRgb(colorB);
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+}
+
+function firstDistinctColor(color) {
+  return PALETTE.find((candidate) => colorDistance(color, candidate) >= 100) || "#4dd0e1";
 }
 
 function drawLegend(ctx, items, startX, y, maxX) {
