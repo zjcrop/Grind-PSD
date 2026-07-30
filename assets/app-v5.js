@@ -467,13 +467,29 @@ function bindEvents() {
   $("authBrowseOnlyBtn").addEventListener("click", exitAuthToBrowse);
   $("authRegisterExitBtn").addEventListener("click", exitAuthToBrowse);
 
-  $("historySearch").addEventListener("input", renderHistory);
-  ["historyBrandFilter", "historyModelFilter", "historyGradeFilter", "historyDateFrom", "historyDateTo", "historySort"].forEach((id) => {
-    $(id).addEventListener("change", () => {
-      if (id === "historyBrandFilter") refreshHistoryFilters();
-      renderHistory();
-    });
+  $("historyFilterFields").appendChild($("historyFilters"));
+  $("historyFilters").hidden = false;
+  const historyFilterInputs = [...$("historyFilters").querySelectorAll("input, select")];
+  $("openHistoryFilterBtn").addEventListener("click", () => {
+    $("historyFilterModal").dataset.snapshot = JSON.stringify(
+      Object.fromEntries(historyFilterInputs.map((input) => [input.id, input.value]))
+    );
+    showModal("historyFilterModal");
   });
+  $("cancelHistoryFilterBtn").addEventListener("click", () => {
+    const snapshot = JSON.parse($("historyFilterModal").dataset.snapshot || "{}");
+    historyFilterInputs.forEach((input) => {
+      if (snapshot[input.id] !== undefined) input.value = snapshot[input.id];
+    });
+    refreshHistoryFilters();
+    hideModal("historyFilterModal");
+  });
+  $("applyHistoryFilterBtn").addEventListener("click", () => {
+    refreshHistoryFilters();
+    renderHistory();
+    hideModal("historyFilterModal");
+  });
+  $("historyBrandFilter").addEventListener("change", refreshHistoryFilters);
   $("clearHistorySelectionBtn").addEventListener("click", clearHistorySelection);
   $("compareHistorySelectionBtn").addEventListener("click", compareHistorySelection);
   $("editCompareSelectionBtn").addEventListener("click", () => switchTab("history"));
@@ -487,13 +503,6 @@ function bindEvents() {
   $("sel3dGrinder").addEventListener("change", render3D);
   $("sel3dOverlay").addEventListener("change", render3D);
   $("sel3dUnit").addEventListener("change", render3D);
-
-  $("cmpUnit").addEventListener("change", renderCompare);
-  $("cmpRecordA").addEventListener("change", renderCompare);
-  $("cmpRecordB").addEventListener("change", renderCompare);
-  $("cmpColorA").addEventListener("input", renderCompare);
-  $("cmpColorB").addEventListener("input", renderCompare);
-  $("swapCompareBtn").addEventListener("click", swapCompare);
 
   ["communitySearch", "communityUserFilter", "communityBrandFilter", "communityGradeFilter"].forEach((id) => {
     $(id).addEventListener(id === "communitySearch" ? "input" : "change", renderCommunity);
@@ -513,6 +522,12 @@ function bindEvents() {
   $("wizardBack3").addEventListener("click", () => goWizardStep(2));
   $("wizardExit2").addEventListener("click", exitMeasurementFlow);
   $("wizardExit3").addEventListener("click", exitMeasurementFlow);
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-history-details]")) return;
+    document.querySelectorAll("[data-history-details][open]").forEach((details) => {
+      details.open = false;
+    });
+  });
   $("saveRecordBtn").addEventListener("click", saveWizardRecord);
   $("doseInput").addEventListener("input", updateWeightSummary);
   $("addSieveRowBtn").addEventListener("click", () => {
@@ -1371,9 +1386,11 @@ function renderCurrent() {
   const rows = Core.getRecordSieves(record).map((sieve) => {
     const weight = record.weightsGrams[sieve.key] || 0;
     const pct = record.totalG ? weight / record.totalG * 100 : 0;
+    const legacyBin = sieve.key === "pan80_lt300_g" && record.sieveProfile?.legacy;
+    const sieveName = legacyBin ? "低于 60 目" : sieve.label;
     return `
       <tr>
-        <td><strong>${escapeHtml(sieve.label)}</strong></td>
+        <td><strong>${escapeHtml(sieveName)}</strong>${legacyBin ? '<small class="legacy-bin-note">旧五段，未拆分</small>' : ""}</td>
         <td>${escapeHtml(sieve.range)}</td>
         <td class="num">${formatNumber(weight, 2)}</td>
         <td class="num">${formatNumber(pct, 2)}%</td>
@@ -1402,7 +1419,8 @@ function renderCurrent() {
           <button class="ghost small" type="button" data-current-action="print">打印</button>
         </div>
       </div>
-      <table>
+      <table class="current-summary-table">
+        <colgroup><col><col><col><col><col></colgroup>
         <thead><tr><th>筛分档</th><th>标称粒径区间</th><th class="num">重量 g</th><th class="num">占比</th><th>分布</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -1538,6 +1556,32 @@ function renderHistory() {
 }
 
 function recordTable(records, options = {}) {
+  if (options.selectable && !options.community) {
+    return `<div class="history-record-list">${records.map((record) => `
+      <details class="history-record" data-history-details>
+        <summary>
+          <input type="checkbox" data-history-select="${escapeHtml(record.id)}" ${state.selectedHistoryIds.has(record.id) ? "checked" : ""} aria-label="选择记录">
+          <span class="history-record-line">
+            <time>${escapeHtml(formatDateTime(record.createdAt))}</time>
+            <strong>${escapeHtml(record.grinder.model)}/${escapeHtml(record.grinder.setting)}</strong>
+            <span>${escapeHtml(record.metrics.quality.gradeLabel || "未评级")}</span>
+          </span>
+        </summary>
+        <div class="history-record-detail">
+          <div><span>品牌 / 型号</span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></div>
+          <div><span>刻度</span><strong>${escapeHtml(record.grinder.setting)}</strong></div>
+          <div><span>回收总重</span><strong>${formatNumber(record.totalG, 2)} g</strong></div>
+          <div><span>极细粉</span><strong>${formatNumber(record.metrics.finesPct, 2)}%</strong></div>
+          <div><span>可靠性</span>${qualityChip(record.metrics.quality)}</div>
+          <div><span>样品</span><strong>${record.sample.bean ? escapeHtml(record.sample.bean) : "—"}</strong></div>
+          <div class="history-detail-actions">
+            <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
+            <button type="button" data-clone-record="${escapeHtml(record.id)}">复测</button>
+            <button type="button" data-delete-record="${escapeHtml(record.id)}">删除</button>
+          </div>
+        </div>
+      </details>`).join("")}</div>`;
+  }
   return `
     <table class="record-table">
       <thead>
@@ -1599,6 +1643,15 @@ function bindHistorySelection(container) {
       else state.selectedHistoryIds.delete(id);
       updateHistorySelectionStatus();
     });
+  });
+  container.querySelectorAll("[data-history-details]").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (!details.open) return;
+      container.querySelectorAll("[data-history-details][open]").forEach((other) => {
+        if (other !== details) other.open = false;
+      });
+    });
+    details.querySelector("summary input")?.addEventListener("click", (event) => event.stopPropagation());
   });
 }
 
@@ -1803,21 +1856,7 @@ function render3D() {
 }
 
 function refreshCompareOptions() {
-  const records = getAllRecords().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  const oldA = $("cmpRecordA").value;
-  const oldB = $("cmpRecordB").value;
-  const options = records.map((record) => {
-    const source = state.store.records.some((item) => item.id === record.id) ? "本地" : "社区";
-    return `<option value="${escapeHtml(record.id)}">[${source}] ${escapeHtml(record.user.id)} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · ${escapeHtml(record.grinder.setting)}</option>`;
-  }).join("");
-  $("cmpRecordA").innerHTML = options || '<option value="">暂无记录</option>';
-  $("cmpRecordB").innerHTML = options || '<option value="">暂无记录</option>';
-  if (records.some((record) => record.id === oldA)) $("cmpRecordA").value = oldA;
-  if (records.some((record) => record.id === oldB)) $("cmpRecordB").value = oldB;
-  if (!$("cmpRecordA").value && records[0]) $("cmpRecordA").value = records[0].id;
-  if ((!$("cmpRecordB").value || $("cmpRecordB").value === $("cmpRecordA").value) && records[1]) {
-    $("cmpRecordB").value = records[1].id;
-  }
+  // 多记录对比直接使用历史记录中的勾选集合，无需维护第二套双记录选择器。
 }
 
 function findAnyRecord(id) {
@@ -1833,42 +1872,6 @@ function swapCompare() {
 
 function renderCompare() {
   renderMultiCompare();
-  const a = findAnyRecord($("cmpRecordA").value);
-  const b = findAnyRecord($("cmpRecordB").value);
-  if (a && b && new Date(a.createdAt) > new Date(b.createdAt)) {
-    $("cmpRecordA").value = b.id;
-    $("cmpRecordB").value = a.id;
-    return renderCompare();
-  }
-  const colorA = Core.normalizeHexColor($("cmpColorA").value, "#8a8a8a");
-  let colorB = Core.normalizeHexColor($("cmpColorB").value, "#d98e32");
-  if (colorDistance(colorA, colorB) < 80) {
-    colorB = firstDistinctColor(colorA);
-    $("cmpColorB").value = colorB;
-  }
-  drawOverlapCompare($("canvasCmp"), a, b, $("cmpUnit").value, colorA, colorB);
-
-  if (!a || !b) {
-    $("compareMetrics").innerHTML = "";
-    drawArray3D($("canvasCmp3dA"), null, "g");
-    drawArray3D($("canvasCmp3dB"), null, "g");
-    return;
-  }
-
-  const difference = (valueA, valueB, suffix = "") => `${formatSigned((valueB || 0) - (valueA || 0), 2)}${suffix}`;
-  $("compareMetrics").innerHTML = `
-    ${deltaCard("极细粉差值 B−A", difference(a.metrics.finesPct, b.metrics.finesPct, " pct"))}
-    ${deltaCard("≥1000 μm 差值 B−A", difference(a.metrics.coarsePct, b.metrics.coarsePct, " pct"))}
-    ${deltaCard("500–1000 μm 差值 B−A", difference(a.metrics.bodyPct, b.metrics.bodyPct, " pct"))}
-    ${deltaCard("回收率差值 B−A", difference(a.metrics.quality.recoveryPct, b.metrics.quality.recoveryPct, " pct"))}`;
-
-  const groups = groupRecords(getAllRecords());
-  const groupA = groups.find((group) => group.key === Core.recordGroupKey(a));
-  const groupB = groups.find((group) => group.key === Core.recordGroupKey(b));
-  drawArray3D($("canvasCmp3dA"), [
-    { ...groupA, color: colorA },
-    { ...groupB, color: colorB }
-  ], "pct");
 }
 
 function renderMultiCompare() {
@@ -1882,7 +1885,7 @@ function renderMultiCompare() {
       Z${index + 1} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}
       · ${escapeHtml(record.grinder.setting)} · ${escapeHtml(formatDate(record.createdAt))}
     </span>`).join("");
-  drawMultiRecord3D($("canvasCmpMulti3d"), records, $("cmpUnit")?.value || "pct", $("multiCompareNote"));
+  drawMultiRecord3D($("canvasCmpMulti3d"), records, "pct", $("multiCompareNote"));
 }
 
 function deltaCard(label, value) {
@@ -2059,11 +2062,7 @@ function compareSelectedCommunity() {
     toast("请正好选择 2 条社区记录进行对比。", "error");
     return;
   }
-  refreshCompareOptions();
-  $("cmpRecordA").value = selected[0].id;
-  $("cmpRecordB").value = selected[1].id;
-  renderCompare();
-  switchTab("compare");
+  toast("社区双对比已停用；请先导入记录，再在历史记录中进行多选对比。", "error");
 }
 
 function downloadSelectedCommunity() {

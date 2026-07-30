@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v61_network_first_shell(self):
+    def test_service_worker_uses_v62_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v6.1.0", service_worker)
+        self.assertIn("grind-psd-shell-v6.2.0", service_worker)
         self.assertRegex(
             service_worker,
             r'endsWith\("/assets/app-v5\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
@@ -87,6 +87,20 @@ class StaticUiTests(unittest.TestCase):
             "historyDateTo", "historySort", "compareHistorySelectionBtn",
         ):
             self.assertRegex(html, rf"""\bid=["']{element_id}["']""")
+
+    def test_compact_history_and_multi_compare_only(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
+        self.assertIn('id="historyFilterModal"', html)
+        self.assertIn('id="openHistoryFilterBtn"', html)
+        self.assertIn('data-history-details', script)
+        self.assertIn(".history-record-line", styles)
+        self.assertIn(".current-summary-table", styles)
+        self.assertIn(".legacy-bin-note", styles)
+        self.assertNotIn("双记录重叠对比", html)
+        self.assertNotIn('id="canvasCmp"', html)
+        self.assertIn('data-tab="array3d" type="button">记录详情</button>', html)
 
 
 if __name__ == "__main__":

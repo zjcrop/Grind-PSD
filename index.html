@@ -24,7 +24,7 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v6.1</span></h1>
+        <h1>Grind-PSD <span class="version">v6.2</span></h1>
         <p>粉径分布分析器 · 五筛六分段 · 本地数据</p>
       </div>
     </div>
@@ -57,7 +57,7 @@
   <nav class="tabs" role="tablist" aria-label="Grind-PSD 功能">
     <button class="tab active" role="tab" aria-selected="true" data-tab="current" type="button">当前记录</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="history" type="button">历史记录</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="array3d" type="button">3D 阵列图</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="array3d" type="button">记录详情</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="compare" type="button">对比分析</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="community" type="button" hidden>
       社区数据库 <span class="count-badge" id="communityCountBadge">0</span>
@@ -84,13 +84,14 @@
     <section id="tab-history" class="tab-panel" role="tabpanel" hidden>
       <div class="panel">
         <div class="panel-head">
-          <h2>全部本地称重记录 <span class="hint">点击“查看”可回到当前记录</span></h2>
+          <h2>全部本地称重记录 <span class="hint">点击单行记录展开详情</span></h2>
           <div class="panel-actions">
             <button class="ghost small" id="exportCsvBtn" type="button">导出 CSV</button>
             <button class="danger small" id="clearRecordsBtn" type="button">清空本地记录</button>
           </div>
         </div>
-        <div class="filters history-filters">
+        <button class="ghost small filter-trigger" id="openHistoryFilterBtn" type="button">筛选</button>
+        <div class="filters history-filters" id="historyFilters" hidden>
           <label>
             <span>搜索</span>
             <input type="search" id="historySearch" placeholder="品牌、型号、刻度、咖啡豆…">
@@ -141,7 +142,7 @@
     <section id="tab-array3d" class="tab-panel" role="tabpanel" hidden>
       <div class="panel">
         <div class="panel-head wrap">
-          <h2>研磨刻度 × 粉径 3D 阵列图
+          <h2>记录详情
             <span class="hint">X 轴=粒径档 · Y 轴=重量/占比 · Z 轴=研磨刻度（细→粗）</span>
           </h2>
           <div class="panel-actions">
@@ -186,42 +187,6 @@
         <div id="multiCompareLegend" class="multi-compare-legend"></div>
         <div class="canvas-scroll"><canvas id="canvasCmpMulti3d" aria-label="最多十条测次沿 Z 轴并列的三维柱状图"></canvas></div>
         <p class="note" id="multiCompareNote">请到“历史记录”中选择 2–10 条记录。</p>
-      </div>
-      <div class="panel">
-        <div class="panel-head wrap">
-          <h2>双记录重叠对比 <span class="hint">完全重叠区域为灰色，高出部分使用对应测次颜色</span></h2>
-          <label class="compact-field">
-            <span>单位</span>
-            <select id="cmpUnit">
-              <option value="pct">占比 %（推荐）</option>
-              <option value="g">重量 g</option>
-            </select>
-          </label>
-        </div>
-        <div class="compare-selectors">
-          <label class="compare-card side-a">
-            <span class="compare-label">较老记录 A（默认灰色）</span>
-            <select id="cmpRecordA"></select>
-            <input type="color" id="cmpColorA" value="#8a8a8a" aria-label="较老记录颜色">
-          </label>
-          <button class="swap-button" id="swapCompareBtn" type="button" aria-label="交换两条对比记录">⇄</button>
-          <label class="compare-card side-b">
-            <span class="compare-label">较新记录 B（标记色）</span>
-            <select id="cmpRecordB"></select>
-            <input type="color" id="cmpColorB" value="#d98e32" aria-label="较新记录颜色">
-          </label>
-        </div>
-        <div class="canvas-scroll">
-          <canvas id="canvasCmp" role="img" aria-label="两条粒径分布重叠对比图"></canvas>
-        </div>
-        <div class="delta-grid" id="compareMetrics"></div>
-        <p class="note">投粉总量不同时必须使用“占比 %”比较。不同筛具、筛分时长或回收质量等级的数据只能作为探索性参考。</p>
-      </div>
-      <div class="panel">
-        <h2>刻度阵列重叠对比</h2>
-        <div class="canvas-scroll"><canvas id="canvasCmp3dA" aria-label="两次刻度阵列同坐标系重叠对比图"></canvas></div>
-        <canvas id="canvasCmp3dB" hidden></canvas>
-        <p class="note">两组数据使用同一 X/Y/Z 坐标系；共同高度为灰色，任一测次高出的部分使用该测次颜色。</p>
       </div>
     </section>
 
@@ -356,6 +321,17 @@
     </section>
   </main>
 
+  <div class="overlay hidden" id="historyFilterModal" role="dialog" aria-modal="true" aria-labelledby="historyFilterTitle">
+    <div class="modal compact-modal">
+      <h2 id="historyFilterTitle">筛选与排序</h2>
+      <div id="historyFilterFields"></div>
+      <div class="modal-foot">
+        <button class="ghost" id="cancelHistoryFilterBtn" type="button">取消</button>
+        <button class="primary" id="applyHistoryFilterBtn" type="button">确认筛选</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay hidden" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
     <div class="modal auth-modal">
       <div class="auth-hero">
@@ -363,7 +339,7 @@
           <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div>
-          <span class="eyebrow">Grind-PSD v6.1</span>
+        <span class="eyebrow">Grind-PSD v6.2</span>
           <h2 id="authTitle">登录或注册测量 ID</h2>
           <p>用户 ID 与测量记录仅保存在当前浏览器；本机已登录时下次直接进入主界面。</p>
         </div>

@@ -594,6 +594,7 @@ select {
 
 table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -836,13 +837,156 @@ td.wrap-cell {
 }
 
 .bar-cell {
-  min-width: 150px;
+  min-width: 0;
 }
 
 .mini-bar {
   height: 8px;
   border-radius: 5px;
   background: var(--accent);
+}
+
+.current-summary-table {
+  table-layout: fixed;
+}
+
+.current-summary-table col:nth-child(1) { width: 25%; }
+.current-summary-table col:nth-child(2) { width: 25%; }
+.current-summary-table col:nth-child(3) { width: 15%; }
+.current-summary-table col:nth-child(4) { width: 15%; }
+.current-summary-table col:nth-child(5) { width: 20%; }
+
+.current-summary-table th,
+.current-summary-table td {
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 7px;
+  padding-left: 7px;
+  text-overflow: ellipsis;
+}
+
+.current-summary-table td:first-child,
+.current-summary-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.legacy-bin-note {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 400;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.filter-trigger {
+  margin: 0 0 10px;
+}
+
+#historyFilterFields .history-filters {
+  grid-template-columns: 1fr 1fr;
+  margin: 14px 0 0;
+}
+
+#historyFilterFields .history-filters label:first-child {
+  grid-column: 1 / -1;
+}
+
+.history-record-list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.history-record {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+
+.history-record > summary {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 7px 9px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.history-record > summary::-webkit-details-marker {
+  display: none;
+}
+
+.history-record-line {
+  display: grid;
+  grid-template-columns: minmax(92px, .9fr) minmax(90px, 1.1fr) minmax(54px, .7fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.history-record-line time,
+.history-record-line strong,
+.history-record-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-record-line time,
+.history-record-line span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.history-record-line strong {
+  font-size: 11px;
+}
+
+.history-record-detail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.history-record-detail > div {
+  min-width: 0;
+}
+
+.history-record-detail > div > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.history-record-detail > div > strong {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-detail-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.history-detail-actions button {
+  min-height: 29px;
+  padding: 4px 9px;
+  border-color: var(--border);
+  background: transparent;
+  font-size: 10px;
 }
 
 canvas {
@@ -2187,6 +2331,44 @@ label.field {
 
   .record-header {
     flex-direction: column;
+  }
+
+  .current-summary-table {
+    font-size: 10px;
+  }
+
+  .current-summary-table th {
+    font-size: 8px;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .current-summary-table th,
+  .current-summary-table td {
+    padding: 7px 3px;
+  }
+
+  .current-summary-table col:nth-child(1) { width: 27%; }
+  .current-summary-table col:nth-child(2) { width: 25%; }
+  .current-summary-table col:nth-child(3) { width: 14%; }
+  .current-summary-table col:nth-child(4) { width: 16%; }
+  .current-summary-table col:nth-child(5) { width: 18%; }
+
+  .history-record-line {
+    grid-template-columns: minmax(82px, 1fr) minmax(82px, 1fr) minmax(48px, .62fr);
+    gap: 5px;
+  }
+
+  .history-record-detail {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #historyFilterFields .history-filters {
+    grid-template-columns: 1fr;
+  }
+
+  #historyFilterFields .history-filters label:first-child {
+    grid-column: auto;
   }
 
   .addrow {
