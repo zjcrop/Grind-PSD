@@ -1,6 +1,6 @@
 {
   "id": "./",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "name": "Grind-PSD 咖啡研磨粒径分布分析器",
   "short_name": "Grind-PSD",
   "description": "以五张筛网形成六个质量分段，记录与对比咖啡研磨粒径分布。",

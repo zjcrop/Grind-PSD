@@ -23,7 +23,10 @@ class StaticUiTests(unittest.TestCase):
             "authModal",
             "authLoginPanel",
             "authRegisterPanel",
-            "sel3dOverlay",
+            "measurementStartBtn",
+            "measurementWorkspace",
+            "recordDetailUnit",
+            "canvasRecordDetail",
             "wizardStep1",
             "wizardStep2",
             "wizardStep3",
@@ -32,12 +35,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v101_network_first_shell(self):
+    def test_service_worker_uses_v12_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.0.1", service_worker)
+        self.assertIn("grind-psd-shell-v1.2", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -75,7 +78,8 @@ class StaticUiTests(unittest.TestCase):
         save_block = script.split("async function saveWizardRecord()", 1)[1].split(
             "function selectNewestRecord", 1
         )[0]
-        self.assertIn("点击“开始称测”可进行下一次测量", save_block)
+        self.assertIn('switchTab("measure")', save_block)
+        self.assertIn("可继续开始下一次称测", save_block)
         self.assertNotIn("openWizard({ preferRecent: true })", save_block)
 
     def test_multi_record_compare_and_mobile_cards(self):
@@ -106,6 +110,7 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("双记录重叠对比", html)
         self.assertNotIn('id="canvasCmp"', html)
         self.assertIn('data-tab="array3d" type="button">记录详情</button>', html)
+        self.assertNotIn('data-tab="compare"', html)
 
     def test_verified_cloud_upload_ui(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -145,11 +150,28 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
         settings_block = html[html.index('id="settingsModal"'):]
-        self.assertIn("1.0 正式版", settings_block)
+        self.assertIn("版本：1.2", settings_block)
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.0.0"', manifest)
+        self.assertIn('"version": "1.2.0"', manifest)
+
+    def test_v12_measurement_home_and_adaptive_record_detail(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        nav = html[html.index('<nav class="tabs"'):html.index("</nav>")]
+        measure_pos = nav.index('data-tab="measure"')
+        current_pos = nav.index('data-tab="current"')
+        self.assertLess(measure_pos, current_pos)
+        self.assertIn('data-tab="measure" type="button">称测</button>', nav)
+        self.assertNotIn("对比分析</button>", nav)
+        self.assertIn('activeTab: "measure"', script)
+        self.assertIn("prepareMeasurementPage();", script)
+        self.assertIn("showMeasurementWorkspace();", script)
+        self.assertIn("function renderRecordDetail()", script)
+        self.assertIn("selectedLocalRecords.length > 1", script)
+        self.assertIn('drawBarChart($("canvasRecordDetail")', script)
+        self.assertIn('switchTab("array3d")', script)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
