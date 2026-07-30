@@ -98,9 +98,13 @@ mass_balance_error_pct = abs(sum(five_fraction_weights) - dose_g) / dose_g × 10
 
 - 总库：`data/database.json`。
 - 用户库：`data/users/<user_id>.json`。
-- 第一次成功提交会把 `user.id` 绑定到 Issue 提交者的 GitHub 登录名。
+- 注册 Issue 或第一次兼容性数据提交会把 `user.id` 绑定到 Issue 提交者的 GitHub 登录名。
+- 用户列表检查提供前端即时反馈；工作流在串行写库时再次检查，解决同时注册同一 ID 的竞态。
 - 工作流忽略前端提供的占比、指标、来源和更新时间，使用原始字段重新计算。
 - 相同记录 ID、相同内容的重复提交不会重复写入；相同 ID、不同内容会被拒绝。
+- 批量新增最多 20 条且必须属于同一用户 ID；任一条校验失败时整批不写入。
+- 编辑不能改变记录 ID、用户 ID 或创建时间；删除必须指定记录所属用户 ID。
+- 注册、编辑、删除均要求 Issue 作者与数据库中的 `githubLogin` 所有者一致。
 - 每条公开记录保留 Issue 编号和 GitHub 提交者，用于审计与纠错。
 
 ## 7. 版本管理

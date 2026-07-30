@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Grind-PSD 咖啡研磨粒径分布分析器",
   "short_name": "Grind-PSD",
-  "description": "按统一五段筛分标准记录、共享与对比咖啡研磨粒径分布。",
+  "description": "按统一五段筛分标准连续记录、共享、编辑与对比咖啡研磨粒径分布。",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "./",
@@ -14,8 +14,8 @@
     "minimal-ui"
   ],
   "orientation": "any",
-  "background_color": "#14100d",
-  "theme_color": "#14100d",
+  "background_color": "#100d0b",
+  "theme_color": "#100d0b",
   "categories": [
     "productivity",
     "utilities",

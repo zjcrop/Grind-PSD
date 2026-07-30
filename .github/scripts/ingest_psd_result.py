@@ -20,7 +20,8 @@ DATABASE_PATH = Path("data/database.json")
 USERS_DIR = Path("data/users")
 ERROR_PATH = Path(os.environ.get("INGEST_ERROR_PATH", "/tmp/grind-psd-ingest-error.txt"))
 OUTPUT_PATH = os.environ.get("GITHUB_OUTPUT")
-MAX_PAYLOAD_CHARS = 16_000
+MAX_PAYLOAD_CHARS = 120_000
+MAX_BATCH_RECORDS = 20
 
 WEIGHT_KEYS = [
     "mesh18_retained_g",
@@ -58,15 +59,13 @@ def main() -> None:
             raise ValidationError("Unable to resolve the GitHub account that submitted this record.")
 
         payload = extract_payload(body)
-        record = validate_and_normalize(payload, github_login, issue_number)
-        duplicate = update_database(record)
-        write_output("record_id", record["id"])
-        write_output("user_id", record["user"]["id"])
-        write_output("duplicate", "true" if duplicate else "false")
-        print(
-            f"{'Existing' if duplicate else 'Added'} record {record['id']} "
-            f"for user {record['user']['id']}."
-        )
+        result = process_operation(payload, github_login, issue_number)
+        write_output("record_id", result["record_id"])
+        write_output("user_id", result["user_id"])
+        write_output("action", result["action"])
+        write_output("record_count", str(result["record_count"]))
+        write_output("duplicate", "true" if result["duplicate"] else "false")
+        print(result["message"])
     except (ValidationError, KeyError, TypeError, json.JSONDecodeError) as exc:
         message = clean_error_message(str(exc))
         ERROR_PATH.write_text(message + "\n", encoding="utf-8")
@@ -128,10 +127,305 @@ def extract_payload(body: str) -> dict[str, Any]:
     return payload
 
 
+def process_operation(
+    payload: dict[str, Any],
+    github_login: str,
+    issue_number: str,
+) -> dict[str, Any]:
+    """Apply one authenticated Issue operation as an all-or-nothing database change."""
+    operation = clean_text(payload.get("operation") or "legacy_upsert", 40)
+    if operation == "register_user":
+        return register_user(payload, github_login)
+    if operation == "delete_record":
+        return delete_record(payload, github_login)
+    if operation == "update_record":
+        return update_record(payload, github_login, issue_number)
+    if operation == "upsert_records":
+        return upsert_records(payload, github_login, issue_number)
+    if operation == "legacy_upsert":
+        return upsert_records(
+            {
+                "operation": "upsert_records",
+                "schemaVersion": payload.get("schemaVersion"),
+                "standardId": payload.get("standardId"),
+                "license": payload.get("license"),
+                "records": [payload],
+            },
+            github_login,
+            issue_number,
+        )
+    raise ValidationError(f"Unsupported operation '{operation}'.")
+
+
+def validate_envelope(payload: dict[str, Any]) -> None:
+    if payload.get("schemaVersion") != SCHEMA_VERSION:
+        raise ValidationError(f"schemaVersion must be {SCHEMA_VERSION}.")
+    if payload.get("standardId") != STANDARD_ID:
+        raise ValidationError(f"standardId must be {STANDARD_ID}.")
+
+
+def validate_user(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValidationError("user must be a JSON object.")
+    user_id = clean_text(value.get("id"), 48).lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,47}", user_id):
+        raise ValidationError(
+            "user.id must use 2-48 lowercase letters, numbers, underscores, or hyphens."
+        )
+    return {
+        "id": user_id,
+        "name": clean_text(value.get("name") or user_id, 60),
+    }
+
+
+def register_user(
+    payload: dict[str, Any],
+    github_login: str,
+) -> dict[str, Any]:
+    validate_envelope(payload)
+    user = validate_user(payload.get("user"))
+    database = load_database()
+    users = ensure_users_object(database)
+    existing = users.get(user["id"])
+    owner = owner_for_user(database, user["id"])
+    actor = github_login.lower()
+    if owner and owner != actor:
+        raise ValidationError(
+            f"user.id '{user['id']}' is already bound to GitHub account '{owner}'."
+        )
+
+    duplicate = bool(
+        existing
+        and owner == actor
+        and clean_text(existing.get("displayName") or user["id"], 60) == user["name"]
+    )
+    now = utc_now()
+    registered_at = (
+        clean_text(existing.get("registeredAt"), 40)
+        if isinstance(existing, dict)
+        else ""
+    ) or now
+    users[user["id"]] = {
+        "displayName": user["name"],
+        "githubLogin": clean_text(github_login, 80),
+        "file": f"data/users/{user['id']}.json",
+        "count": int(existing.get("count") or 0) if isinstance(existing, dict) else 0,
+        "registeredAt": registered_at,
+        "updatedAt": now,
+    }
+    database["updatedAt"] = now
+    rebuild_user_index(database)
+    atomic_write_json(DATABASE_PATH, database)
+    sync_user_database(database, user["id"])
+    return operation_result(
+        action="register_user",
+        user_id=user["id"],
+        record_ids=[],
+        duplicate=duplicate,
+        message=(
+            f"{'Confirmed' if duplicate else 'Registered'} user {user['id']} "
+            f"for GitHub account {github_login}."
+        ),
+    )
+
+
+def upsert_records(
+    payload: dict[str, Any],
+    github_login: str,
+    issue_number: str,
+) -> dict[str, Any]:
+    validate_envelope(payload)
+    if payload.get("license") not in (None, DATA_LICENSE):
+        raise ValidationError(f"license must be {DATA_LICENSE}.")
+    raw_records = payload.get("records")
+    if not isinstance(raw_records, list) or not raw_records:
+        raise ValidationError("records must be a non-empty JSON array.")
+    if len(raw_records) > MAX_BATCH_RECORDS:
+        raise ValidationError(
+            f"A batch may contain at most {MAX_BATCH_RECORDS} records."
+        )
+
+    normalized = [
+        validate_and_normalize(
+            item,
+            github_login,
+            issue_number,
+            action="create",
+        )
+        for item in raw_records
+    ]
+    ids = [record["id"] for record in normalized]
+    if len(set(ids)) != len(ids):
+        raise ValidationError("A batch cannot contain duplicate record IDs.")
+    user_ids = {record["user"]["id"] for record in normalized}
+    if len(user_ids) != 1:
+        raise ValidationError("All records in one batch must use the same user.id.")
+
+    user_id = normalized[0]["user"]["id"]
+    database = load_database()
+    assert_user_owner(database, user_id, github_login, allow_unclaimed=True)
+    records = database["records"]
+    existing_by_id = {str(item.get("id")): item for item in records}
+
+    additions: list[dict[str, Any]] = []
+    duplicate_count = 0
+    for record in normalized:
+        existing = existing_by_id.get(record["id"])
+        if existing:
+            if comparable_payload(existing) != comparable_payload(record):
+                raise ValidationError(
+                    f"record.id {record['id']} already exists with different measurement data."
+                )
+            duplicate_count += 1
+        else:
+            additions.append(record)
+
+    if additions:
+        records.extend(additions)
+        sort_records(records)
+        database["updatedAt"] = utc_now()
+        database["records"] = records
+        ensure_registered_user(database, normalized[0]["user"], github_login)
+        rebuild_user_index(database)
+        atomic_write_json(DATABASE_PATH, database)
+        sync_user_database(database, user_id)
+
+    return operation_result(
+        action="upsert_records",
+        user_id=user_id,
+        record_ids=ids,
+        duplicate=not additions,
+        message=(
+            f"Accepted {len(additions)} new record(s) and {duplicate_count} existing "
+            f"record(s) for user {user_id}."
+        ),
+    )
+
+
+def update_record(
+    payload: dict[str, Any],
+    github_login: str,
+    issue_number: str,
+) -> dict[str, Any]:
+    validate_envelope(payload)
+    target_id = clean_text(payload.get("targetId"), 80)
+    raw_record = payload.get("record")
+    if not isinstance(raw_record, dict):
+        raise ValidationError("record must be a JSON object.")
+    normalized = validate_and_normalize(
+        raw_record,
+        github_login,
+        issue_number,
+        action="update",
+    )
+    if normalized["id"] != target_id:
+        raise ValidationError("targetId must match record.id.")
+
+    database = load_database()
+    index = next(
+        (position for position, item in enumerate(database["records"]) if item.get("id") == target_id),
+        None,
+    )
+    if index is None:
+        raise ValidationError(f"record.id {target_id} does not exist.")
+    existing = database["records"][index]
+    user_id = str(existing.get("user", {}).get("id") or "")
+    if normalized["user"]["id"] != user_id:
+        raise ValidationError("An edit cannot move a record to another user.id.")
+    assert_user_owner(database, user_id, github_login)
+    if normalized["createdAt"] != existing.get("createdAt"):
+        raise ValidationError("An edit cannot change createdAt.")
+
+    duplicate = comparable_payload(existing) == comparable_payload(normalized)
+    if not duplicate:
+        normalized["submission"]["originalIssueNumber"] = int(
+            existing.get("submission", {}).get("issueNumber") or 0
+        )
+        database["records"][index] = normalized
+        sort_records(database["records"])
+        database["updatedAt"] = utc_now()
+        rebuild_user_index(database)
+        atomic_write_json(DATABASE_PATH, database)
+        sync_user_database(database, user_id)
+
+    return operation_result(
+        action="update_record",
+        user_id=user_id,
+        record_ids=[target_id],
+        duplicate=duplicate,
+        message=f"{'No changes for' if duplicate else 'Updated'} record {target_id}.",
+    )
+
+
+def delete_record(
+    payload: dict[str, Any],
+    github_login: str,
+) -> dict[str, Any]:
+    validate_envelope(payload)
+    target_id = clean_text(payload.get("targetId"), 80)
+    user_id = clean_text(payload.get("userId"), 48).lower()
+    if not target_id or not re.fullmatch(r"gpsd-[a-z0-9-]{8,72}", target_id):
+        raise ValidationError("targetId has an invalid format.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,47}", user_id):
+        raise ValidationError("userId has an invalid format.")
+
+    database = load_database()
+    existing = next(
+        (item for item in database["records"] if item.get("id") == target_id),
+        None,
+    )
+    if not existing:
+        assert_user_owner(database, user_id, github_login)
+        return operation_result(
+            action="delete_record",
+            user_id=user_id,
+            record_ids=[target_id],
+            duplicate=True,
+            message=f"Record {target_id} was already absent.",
+        )
+    if existing.get("user", {}).get("id") != user_id:
+        raise ValidationError("targetId does not belong to the supplied userId.")
+    assert_user_owner(database, user_id, github_login)
+
+    database["records"] = [
+        item for item in database["records"] if item.get("id") != target_id
+    ]
+    database["updatedAt"] = utc_now()
+    rebuild_user_index(database)
+    atomic_write_json(DATABASE_PATH, database)
+    sync_user_database(database, user_id)
+    return operation_result(
+        action="delete_record",
+        user_id=user_id,
+        record_ids=[target_id],
+        duplicate=False,
+        message=f"Deleted record {target_id} for user {user_id}.",
+    )
+
+
+def operation_result(
+    *,
+    action: str,
+    user_id: str,
+    record_ids: list[str],
+    duplicate: bool,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "action": action,
+        "user_id": user_id,
+        "record_id": record_ids[0] if record_ids else f"user:{user_id}",
+        "record_count": len(record_ids),
+        "duplicate": duplicate,
+        "message": message,
+    }
+
+
 def validate_and_normalize(
     payload: dict[str, Any],
     github_login: str,
     issue_number: str,
+    action: str = "create",
 ) -> dict[str, Any]:
     if payload.get("schemaVersion") != SCHEMA_VERSION:
         raise ValidationError(f"schemaVersion must be {SCHEMA_VERSION}.")
@@ -270,8 +564,125 @@ def validate_and_normalize(
             "channel": "github-issue",
             "githubLogin": clean_text(github_login, 80),
             "issueNumber": int(issue_number) if issue_number.isdigit() else 0,
+            "action": clean_text(action, 20),
         },
     }
+
+
+def load_database() -> dict[str, Any]:
+    database = read_json_object(DATABASE_PATH)
+    if database.get("standardId") not in (None, STANDARD_ID):
+        raise ValidationError("The repository database uses a different standardId.")
+    records = database.get("records")
+    if not isinstance(records, list):
+        raise ValidationError("data/database.json records must be an array.")
+    database["schemaVersion"] = SCHEMA_VERSION
+    database["standardId"] = STANDARD_ID
+    ensure_users_object(database)
+    return database
+
+
+def ensure_users_object(database: dict[str, Any]) -> dict[str, Any]:
+    users = database.get("users")
+    if not isinstance(users, dict):
+        users = {}
+        database["users"] = users
+    return users
+
+
+def owner_for_user(database: dict[str, Any], user_id: str) -> str:
+    users = ensure_users_object(database)
+    owner = str(users.get(user_id, {}).get("githubLogin") or "").lower()
+    if owner:
+        return owner
+    for item in database.get("records", []):
+        if item.get("user", {}).get("id") == user_id:
+            owner = str(item.get("submission", {}).get("githubLogin") or "").lower()
+            if owner:
+                return owner
+    return ""
+
+
+def assert_user_owner(
+    database: dict[str, Any],
+    user_id: str,
+    github_login: str,
+    *,
+    allow_unclaimed: bool = False,
+) -> None:
+    owner = owner_for_user(database, user_id)
+    actor = github_login.lower()
+    if owner and owner != actor:
+        raise ValidationError(
+            f"user.id '{user_id}' is already bound to GitHub account '{owner}'."
+        )
+    if not owner and not allow_unclaimed:
+        raise ValidationError(
+            f"user.id '{user_id}' is not registered and cannot be modified."
+        )
+
+
+def ensure_registered_user(
+    database: dict[str, Any],
+    user: dict[str, str],
+    github_login: str,
+) -> None:
+    users = ensure_users_object(database)
+    existing = users.get(user["id"], {})
+    now = utc_now()
+    users[user["id"]] = {
+        "displayName": user["name"],
+        "githubLogin": clean_text(
+            existing.get("githubLogin") or github_login,
+            80,
+        ),
+        "file": f"data/users/{user['id']}.json",
+        "count": int(existing.get("count") or 0),
+        "registeredAt": clean_text(existing.get("registeredAt"), 40) or now,
+        "updatedAt": now,
+    }
+
+
+def sort_records(records: list[dict[str, Any]]) -> None:
+    records.sort(
+        key=lambda item: (
+            str(item.get("user", {}).get("id", "")),
+            str(item.get("createdAt", "")),
+            str(item.get("id", "")),
+        )
+    )
+
+
+def sync_user_database(database: dict[str, Any], user_id: str) -> None:
+    users = ensure_users_object(database)
+    meta = users.get(user_id)
+    if not isinstance(meta, dict):
+        raise ValidationError(f"user.id '{user_id}' is missing from the user index.")
+    user_records = [
+        item for item in database.get("records", [])
+        if item.get("user", {}).get("id") == user_id
+    ]
+    sort_records(user_records)
+    display_name = (
+        user_records[-1].get("user", {}).get("name")
+        if user_records
+        else meta.get("displayName")
+    ) or user_id
+    user_database = {
+        "schemaVersion": SCHEMA_VERSION,
+        "standardId": STANDARD_ID,
+        "user": {
+            "id": user_id,
+            "name": display_name,
+        },
+        "ownerGithubLogin": meta.get("githubLogin") or "",
+        "registeredAt": meta.get("registeredAt") or "",
+        "updatedAt": utc_now(),
+        "recordCount": len(user_records),
+        "records": user_records,
+    }
+    USERS_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(USERS_DIR / f"{user_id}.json", user_database)
 
 
 def update_database(record: dict[str, Any]) -> bool:
@@ -332,7 +743,22 @@ def validate_user_claim(database: dict[str, Any], record: dict[str, Any]) -> Non
 
 
 def rebuild_user_index(database: dict[str, Any]) -> None:
+    existing_users = ensure_users_object(database)
     users: dict[str, dict[str, Any]] = {}
+    for user_id, meta in existing_users.items():
+        if not isinstance(meta, dict):
+            continue
+        clean_id = clean_text(user_id, 48).lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,47}", clean_id):
+            continue
+        users[clean_id] = {
+            "displayName": clean_text(meta.get("displayName") or clean_id, 60),
+            "githubLogin": clean_text(meta.get("githubLogin"), 80),
+            "file": f"data/users/{clean_id}.json",
+            "count": 0,
+            "registeredAt": clean_text(meta.get("registeredAt"), 40),
+            "updatedAt": clean_text(meta.get("updatedAt"), 40),
+        }
     for item in database.get("records", []):
         user = item.get("user", {})
         user_id = user.get("id")
@@ -345,6 +771,7 @@ def rebuild_user_index(database: dict[str, Any]) -> None:
                 "githubLogin": item.get("submission", {}).get("githubLogin") or "",
                 "file": f"data/users/{user_id}.json",
                 "count": 0,
+                "registeredAt": item.get("createdAt") or "",
                 "updatedAt": "",
             },
         )
@@ -353,6 +780,11 @@ def rebuild_user_index(database: dict[str, Any]) -> None:
         bucket["githubLogin"] = (
             bucket["githubLogin"]
             or item.get("submission", {}).get("githubLogin")
+            or ""
+        )
+        bucket["registeredAt"] = (
+            bucket.get("registeredAt")
+            or item.get("createdAt")
             or ""
         )
         bucket["updatedAt"] = max(

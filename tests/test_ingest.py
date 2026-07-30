@@ -48,6 +48,27 @@ def valid_payload():
     }
 
 
+def register_payload(user_id="test-user", name="测试用户"):
+    return {
+        "operation": "register_user",
+        "schemaVersion": "3.0.0",
+        "standardId": "grind-psd-sieve-v1",
+        "user": {"id": user_id, "name": name},
+        "requestedAt": "2026-07-29T00:00:00Z",
+    }
+
+
+def batch_payload(*records):
+    return {
+        "operation": "upsert_records",
+        "schemaVersion": "3.0.0",
+        "standardId": "grind-psd-sieve-v1",
+        "license": "CC-BY-4.0",
+        "records": list(records),
+        "requestedAt": "2026-07-29T00:00:00Z",
+    }
+
+
 class IngestTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -124,6 +145,80 @@ class IngestTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ingest.ValidationError, "already bound"):
             ingest.update_database(second_record)
+
+    def test_registration_is_unique_and_creates_empty_user_database(self):
+        result = ingest.process_operation(
+            register_payload(), "github-tester", "42"
+        )
+        self.assertEqual(result["action"], "register_user")
+        self.assertFalse(result["duplicate"])
+        duplicate = ingest.process_operation(
+            register_payload(), "github-tester", "43"
+        )
+        self.assertTrue(duplicate["duplicate"])
+        with self.assertRaisesRegex(ingest.ValidationError, "already bound"):
+            ingest.process_operation(
+                register_payload(), "different-account", "44"
+            )
+
+        database = json.loads(ingest.DATABASE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(database["userCount"], 1)
+        self.assertEqual(database["recordCount"], 0)
+        user_database = json.loads(
+            (ingest.USERS_DIR / "test-user.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(user_database["recordCount"], 0)
+        self.assertEqual(user_database["ownerGithubLogin"], "github-tester")
+
+    def test_batch_update_and_delete_require_owner(self):
+        ingest.process_operation(register_payload(), "github-tester", "42")
+        first = valid_payload()
+        second = valid_payload()
+        second["id"] = "gpsd-test-87654321"
+        second["grinder"]["setting"] = "20"
+        result = ingest.process_operation(
+            batch_payload(first, second), "github-tester", "43"
+        )
+        self.assertEqual(result["record_count"], 2)
+        self.assertFalse(result["duplicate"])
+
+        edited = valid_payload()
+        edited["weightsGrams"] = {
+            "mesh18_retained_g": 0.2,
+            "mesh24_retained_g": 1.0,
+            "mesh35_retained_g": 5.0,
+            "mesh60_retained_g": 2.6,
+            "pan80_lt300_g": 1.2,
+        }
+        update = {
+            "operation": "update_record",
+            "schemaVersion": "3.0.0",
+            "standardId": "grind-psd-sieve-v1",
+            "targetId": edited["id"],
+            "record": edited,
+        }
+        with self.assertRaisesRegex(ingest.ValidationError, "already bound"):
+            ingest.process_operation(update, "different-account", "44")
+        changed = ingest.process_operation(update, "github-tester", "45")
+        self.assertFalse(changed["duplicate"])
+
+        delete = {
+            "operation": "delete_record",
+            "schemaVersion": "3.0.0",
+            "standardId": "grind-psd-sieve-v1",
+            "userId": "test-user",
+            "targetId": "gpsd-test-12345678",
+        }
+        with self.assertRaisesRegex(ingest.ValidationError, "already bound"):
+            ingest.process_operation(delete, "different-account", "46")
+        removed = ingest.process_operation(delete, "github-tester", "47")
+        self.assertFalse(removed["duplicate"])
+        database = json.loads(ingest.DATABASE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(database["recordCount"], 1)
+        user_database = json.loads(
+            (ingest.USERS_DIR / "test-user.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(user_database["recordCount"], 1)
 
 
 if __name__ == "__main__":

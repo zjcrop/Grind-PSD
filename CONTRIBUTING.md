@@ -9,14 +9,14 @@
 3. 客户端不得包含可写 GitHub Token、Personal Access Token 或其他仓库密钥。
 4. 公开入库必须经过服务端校验；不能直接信任浏览器计算的占比、等级或指标。
 5. 用户输入和社区数据必须按不可信内容处理，输出到 HTML 前必须转义。
-6. 不能删除或重写既有公开记录来“修正”标准；纠错需保留审计轨迹。
+6. 公开记录的编辑或删除只能通过受控 Issue 操作，由记录所属 ID 的 GitHub 所有者发起；不得绕过工作流直接改库。
 7. 任何 D10/D50/D90 等连续分布指标必须清楚标注为区间近似，不能以伪精度替代五段原始数据。
 
 ## 提交代码前
 
 ```bash
 node --check assets/psd-core.js
-node --check assets/app.js
+node --check assets/app-v4.js
 python3 -m json.tool data/standard.json > /dev/null
 python3 -m json.tool data/record.schema.json > /dev/null
 python3 -m unittest discover -s tests -v
@@ -26,6 +26,9 @@ python3 -m unittest discover -s tests -v
 
 - 360 px 宽手机布局；
 - 原版三步录入流程；
+- 登录/注册、在线 ID 唯一性检查和本地上传询问；
+- 30 分钟内上一设备预选与保存后自动下一轮；
+- 本人在线记录的编辑/删除权限，以及其他账号越权拒绝；
 - 本地记录保存、JSON 导入/导出；
 - 3D 阵列刻度排序；
 - 两条记录对比；

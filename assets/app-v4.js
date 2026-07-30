@@ -1,17 +1,28 @@
 "use strict";
 
+// Grind-PSD v4 application shell and interaction state machine.
 const Core = window.GrindPSDCore;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const STORAGE_KEY = "grindPsdAppV3";
-const LEGACY_KEYS = ["grindPsdAppV2", "grindAnalyzerV1"];
-const COMMUNITY_CACHE_KEY = "grindPsdCommunityCacheV3";
+const APP_VERSION = "4.0.0";
+const STORAGE_KEY = "grindPsdAppV4";
+const LEGACY_KEYS = ["grindPsdAppV3", "grindPsdAppV2", "grindAnalyzerV1"];
+const COMMUNITY_CACHE_KEY = "grindPsdCommunityCacheV4";
 const DATABASE_PATH = "./data/database.json";
 const USER_DATA_PATH = "./data/users";
+const RECENT_GRINDER_WINDOW_MS = 30 * 60 * 1000;
+const MAX_BATCH_RECORDS = 20;
 const PALETTE = ["#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5", "#4dd0e1", "#ffd54f", "#ff8a65"];
 
 if (!Core) {
   throw new Error("GrindPSDCore failed to load.");
 }
+
+window.addEventListener("error", (event) => {
+  reportRuntimeFailure(event.error || event.message);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  reportRuntimeFailure(event.reason);
+});
 
 const state = {
   store: null,
@@ -23,12 +34,18 @@ const state = {
   wizard: freshWizard(),
   activeTab: "current",
   deferredInstallPrompt: null,
-  migrationMessage: ""
+  migrationMessage: "",
+  authMode: "login",
+  identityConfirmed: false,
+  browsingOnly: false,
+  communityFresh: false,
+  pendingOperation: null,
+  nextRoundTimer: null
 };
 
 document.addEventListener("DOMContentLoaded", init);
 
-function init() {
+async function init() {
   state.store = loadStore();
   buildStandardRows();
   buildWeighRows();
@@ -40,19 +57,15 @@ function init() {
   updateNetworkStatus();
   registerServiceWorker();
 
-  if (state.store.settings.autoSync && navigator.onLine) {
-    syncCommunity({ quiet: true });
+  if (navigator.onLine) {
+    await syncCommunity({ quiet: true });
   }
 
   if (state.migrationMessage) {
     setTimeout(() => toast(state.migrationMessage, "success"), 300);
   }
-
-  if (!state.store.records.length && !state.store.settings.hasOpenedWizard) {
-    state.store.settings.hasOpenedWizard = true;
-    saveStore();
-    setTimeout(() => openWizard(), 260);
-  }
+  prepareAuthModal();
+  setTimeout(() => openAuthModal(), 80);
 }
 
 function $(id) {
@@ -61,6 +74,9 @@ function $(id) {
 
 function freshWizard() {
   return {
+    mode: "create",
+    targetRecordId: null,
+    createdAt: null,
     brand: "",
     model: "",
     color: PALETTE[0],
@@ -80,19 +96,25 @@ function freshWizard() {
 
 function defaultStore() {
   const random = Math.random().toString(36).slice(2, 8);
+  const temporaryId = `local-${random}`;
   return {
     schemaVersion: Core.SCHEMA_VERSION,
     user: {
-      id: `user-${random}`,
-      name: "本地用户"
+      id: temporaryId,
+      name: "本机临时用户",
+      temporary: true
     },
+    profiles: {},
+    activeUserId: "",
     settings: {
       autoSync: true,
-      hasOpenedWizard: false
+      hasOpenedWizard: false,
+      rememberLogin: true
     },
     catalog: {},
     records: [],
     lastGrinder: null,
+    lastMeasurementAt: null,
     updatedAt: new Date().toISOString()
   };
 }
@@ -121,21 +143,49 @@ function loadStore() {
 function normalizeStore(input, base) {
   const userId = Core.normalizeUserId(input.user?.id) || base.user.id;
   const records = (input.records || []).map(Core.normalizeRecord).filter(Boolean);
+  const rememberLogin = input.settings?.rememberLogin !== false;
+  const profiles = {};
+  Object.values(input.profiles || {}).forEach((profile) => {
+    const id = Core.normalizeUserId(profile?.id);
+    if (!isValidUserId(id) || isTemporaryUserId(id)) return;
+    profiles[id] = {
+      id,
+      name: Core.cleanText(profile.name || id, 60),
+      createdAt: profile.createdAt || new Date().toISOString(),
+      lastLoginAt: profile.lastLoginAt || null,
+      pendingRegistration: Boolean(profile.pendingRegistration)
+    };
+  });
+  if (rememberLogin && isValidUserId(userId) && !isTemporaryUserId(userId)) {
+    profiles[userId] = profiles[userId] || {
+      id: userId,
+      name: Core.cleanText(input.user?.name || userId, 60),
+      createdAt: input.updatedAt || new Date().toISOString(),
+      lastLoginAt: null,
+      pendingRegistration: false
+    };
+  }
   const store = {
     ...base,
     ...input,
     schemaVersion: Core.SCHEMA_VERSION,
     user: {
       id: userId,
-      name: Core.cleanText(input.user?.name || userId, 60)
+      name: Core.cleanText(input.user?.name || userId, 60),
+      temporary: Boolean(input.user?.temporary) || isTemporaryUserId(userId)
     },
+    profiles,
+    activeUserId: rememberLogin
+      ? (profiles[input.activeUserId]?.id || (!isTemporaryUserId(userId) ? userId : ""))
+      : "",
     settings: {
       ...base.settings,
       ...(input.settings || {})
     },
     catalog: input.catalog && typeof input.catalog === "object" ? input.catalog : {},
     records: dedupeRecords(records),
-    lastGrinder: input.lastGrinder || null
+    lastGrinder: input.lastGrinder || null,
+    lastMeasurementAt: input.lastMeasurementAt || input.lastGrinder?.measuredAt || null
   };
   rebuildCatalogFromRecords(store);
   return store;
@@ -148,25 +198,27 @@ function migrateLegacyStores(base) {
   let lastGrinder = null;
   const catalog = {};
 
-  try {
-    const v2 = JSON.parse(localStorage.getItem(LEGACY_KEYS[0]));
-    if (v2 && Array.isArray(v2.records)) {
+  [LEGACY_KEYS[0], LEGACY_KEYS[1]].forEach((key, index) => {
+    try {
+      const legacy = JSON.parse(localStorage.getItem(key));
+      if (!legacy || !Array.isArray(legacy.records)) return;
       user = {
-        id: Core.normalizeUserId(v2.user?.id) || user.id,
-        name: Core.cleanText(v2.user?.name || v2.user?.id || user.name, 60)
+        id: Core.normalizeUserId(legacy.user?.id) || user.id,
+        name: Core.cleanText(legacy.user?.name || legacy.user?.id || user.name, 60),
+        temporary: Boolean(legacy.user?.temporary) || isTemporaryUserId(legacy.user?.id)
       };
-      v2.records.map(Core.normalizeRecord).filter(Boolean).forEach((record) => {
-        records.push({ ...record, source: "migrated-v2" });
+      legacy.records.map(Core.normalizeRecord).filter(Boolean).forEach((record) => {
+        records.push({ ...record, source: index === 0 ? "migrated-v3" : "migrated-v2" });
       });
-      lastGrinder = v2.lastGrinder || lastGrinder;
-      messages.push(`${v2.records.length} 条上一版记录`);
+      lastGrinder = legacy.lastGrinder || lastGrinder;
+      messages.push(`${legacy.records.length} 条${index === 0 ? "v3" : "v2"} 记录`);
+    } catch (error) {
+      // Continue with any other compatible local format.
     }
-  } catch (error) {
-    // Ignore invalid legacy local data and continue with the original format.
-  }
+  });
 
   try {
-    const v1 = JSON.parse(localStorage.getItem(LEGACY_KEYS[1]));
+    const v1 = JSON.parse(localStorage.getItem(LEGACY_KEYS[2]));
     if (v1 && v1.brands && typeof v1.brands === "object") {
       Object.entries(v1.brands).forEach(([brand, brandData]) => {
         ensureCatalogEntry({ catalog }, brand);
@@ -221,6 +273,17 @@ function migrateLegacyStores(base) {
   const store = {
     ...base,
     user,
+    profiles: isValidUserId(user.id) && !isTemporaryUserId(user.id)
+      ? {
+          [user.id]: {
+            id: user.id,
+            name: user.name,
+            createdAt: new Date().toISOString(),
+            lastLoginAt: null
+          }
+        }
+      : {},
+    activeUserId: isValidUserId(user.id) && !isTemporaryUserId(user.id) ? user.id : "",
     catalog,
     records: dedupeRecords(records),
     lastGrinder
@@ -284,15 +347,43 @@ function bindEvents() {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
 
-  $("newRecordBtn").addEventListener("click", () => openWizard());
+  $("newRecordBtn").addEventListener("click", startMeasurementFlow);
   $("syncBtn").addEventListener("click", () => syncCommunity({ quiet: false }));
   $("communitySyncBtn").addEventListener("click", () => syncCommunity({ quiet: false }));
-  $("exportBtn").addEventListener("click", exportAllJson);
-  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("exportBtn").addEventListener("click", () => {
+    closeActionMenu();
+    exportAllJson();
+  });
+  $("importBtn").addEventListener("click", () => {
+    closeActionMenu();
+    $("importFile").click();
+  });
   $("importFile").addEventListener("change", importJsonFile);
-  $("installBtn").addEventListener("click", installApp);
+  $("installBtn").addEventListener("click", () => {
+    closeActionMenu();
+    installApp();
+  });
   $("settingsBtn").addEventListener("click", openSettings);
   $("saveSettingsBtn").addEventListener("click", saveSettings);
+  $("switchUserBtn").addEventListener("click", () => {
+    hideModal("settingsModal");
+    openAuthModal();
+  });
+
+  $("authLoginTab").addEventListener("click", () => setAuthMode("login"));
+  $("authRegisterTab").addEventListener("click", () => setAuthMode("register"));
+  $("loginUserId").addEventListener("input", updateLoginHint);
+  $("loginContinueBtn").addEventListener("click", loginAndContinue);
+  $("registerUserId").addEventListener("input", updateRegistrationAvailability);
+  $("registerUserName").addEventListener("input", updateRegistrationAvailability);
+  $("registerContinueBtn").addEventListener("click", registerAndContinue);
+  $("authBrowseOnlyBtn").addEventListener("click", exitAuthToBrowse);
+  $("authRegisterExitBtn").addEventListener("click", exitAuthToBrowse);
+  $("syncChoiceContinueBtn").addEventListener("click", continueFromSyncChoice);
+  $("syncChoiceExitBtn").addEventListener("click", exitSyncChoice);
+  $("sessionSyncInput").addEventListener("change", updateSyncChoiceSummary);
+  $("claimLocalInput").addEventListener("change", updateSyncChoiceSummary);
+  $("uploadLocalInput").addEventListener("change", updateSyncChoiceSummary);
 
   $("historySearch").addEventListener("input", renderHistory);
   $("historyGrinderFilter").addEventListener("change", renderHistory);
@@ -329,6 +420,8 @@ function bindEvents() {
   $("wizardBack2").addEventListener("click", () => goWizardStep(1));
   $("wizardNext2").addEventListener("click", () => goWizardStep(3));
   $("wizardBack3").addEventListener("click", () => goWizardStep(2));
+  $("wizardExit2").addEventListener("click", exitMeasurementFlow);
+  $("wizardExit3").addEventListener("click", exitMeasurementFlow);
   $("saveRecordBtn").addEventListener("click", saveWizardRecord);
   $("doseInput").addEventListener("input", updateWeightSummary);
 
@@ -342,7 +435,9 @@ function bindEvents() {
 
   document.querySelectorAll(".overlay").forEach((overlay) => {
     overlay.addEventListener("mousedown", (event) => {
-      if (event.target === overlay) hideModal(overlay.id);
+      if (event.target === overlay && !["authModal", "syncChoiceModal"].includes(overlay.id)) {
+        hideModal(overlay.id);
+      }
     });
   });
 
@@ -371,13 +466,24 @@ function bindEvents() {
 function handleKeyboard(event) {
   if (event.key === "Escape") {
     const open = [...document.querySelectorAll(".overlay:not(.hidden)")].pop();
-    if (open) hideModal(open.id);
+    if (open?.id === "authModal") exitAuthToBrowse();
+    else if (open?.id === "syncChoiceModal") exitSyncChoice();
+    else if (open) hideModal(open.id);
+    return;
+  }
+  if (event.key === "Enter" && !$("authModal").classList.contains("hidden")) {
+    if (state.authMode === "register") registerAndContinue();
+    else loginAndContinue();
     return;
   }
   if (event.key !== "Enter" || $("wizard").classList.contains("hidden")) return;
   if (document.activeElement === $("newBrandInput")) addBrand();
   if (document.activeElement === $("newModelInput")) addModel();
   if (document.activeElement === $("dialInput")) goWizardStep(3);
+}
+
+function closeActionMenu() {
+  document.querySelector(".action-menu")?.removeAttribute("open");
 }
 
 function switchTab(name) {
@@ -419,7 +525,15 @@ function renderAll() {
 }
 
 function updateActiveUser() {
-  $("activeUserText").textContent = `本地用户：${state.store.user.id}`;
+  const active = state.identityConfirmed && !state.browsingOnly && !state.store.user.temporary;
+  const label = active
+    ? `${state.store.user.name} · ${state.store.user.id}`
+    : "尚未登录 · 仅浏览";
+  $("activeUserText").textContent = label;
+  $("activeUserButtonText").textContent = active ? state.store.user.id : "登录";
+  $("activeUserAvatar").textContent = active
+    ? (state.store.user.name || state.store.user.id).slice(0, 1).toUpperCase()
+    : "?";
 }
 
 function updateNetworkStatus(message = "") {
@@ -428,7 +542,289 @@ function updateNetworkStatus(message = "") {
   $("networkText").textContent = message || (online ? "网络可用 · 本地数据已保存" : "离线模式 · 可继续记录，联网后再同步");
 }
 
+function isValidUserId(value) {
+  return /^[a-z0-9][a-z0-9_-]{1,47}$/.test(String(value || ""));
+}
+
+function isTemporaryUserId(value) {
+  return /^(?:local|user)-[a-z0-9]{4,12}$/.test(String(value || ""));
+}
+
+function onlineUsers() {
+  const users = state.communityMeta?.users;
+  return users && typeof users === "object" ? users : {};
+}
+
+function prepareAuthModal() {
+  const localProfiles = Object.values(state.store.profiles || {});
+  const remoteUsers = onlineUsers();
+  const ids = unique([
+    ...localProfiles.map((profile) => profile.id),
+    ...Object.keys(remoteUsers)
+  ]).sort();
+  $("knownUserIds").innerHTML = ids.map((id) => {
+    const name = state.store.profiles[id]?.name || remoteUsers[id]?.displayName || id;
+    return `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`;
+  }).join("");
+  const preferred = state.store.activeUserId || localProfiles[0]?.id || "";
+  $("loginUserId").value = preferred;
+  $("rememberLoginInput").checked = state.store.settings.rememberLogin !== false;
+  updateAuthNetworkStatus();
+  updateLoginHint();
+  updateRegistrationAvailability();
+}
+
+function openAuthModal() {
+  clearTimeout(state.nextRoundTimer);
+  state.nextRoundTimer = null;
+  prepareAuthModal();
+  setAuthMode((state.store.activeUserId || Object.keys(onlineUsers()).length) ? "login" : "register");
+  showModal("authModal");
+  setTimeout(() => {
+    const target = state.authMode === "register" ? $("registerUserId") : $("loginUserId");
+    target?.focus();
+  }, 40);
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === "register" ? "register" : "login";
+  const register = state.authMode === "register";
+  $("authLoginPanel").hidden = register;
+  $("authRegisterPanel").hidden = !register;
+  $("authLoginTab").classList.toggle("active", !register);
+  $("authRegisterTab").classList.toggle("active", register);
+  $("authLoginTab").setAttribute("aria-selected", String(!register));
+  $("authRegisterTab").setAttribute("aria-selected", String(register));
+  if (register) updateRegistrationAvailability();
+}
+
+function updateAuthNetworkStatus() {
+  const box = $("authNetworkStatus");
+  const dot = box.querySelector(".status-dot");
+  const text = box.querySelector("span:last-child");
+  if (!navigator.onLine) {
+    dot.className = "status-dot offline";
+    text.textContent = "当前离线：可登录本机保存的 ID，但不能保证新 ID 唯一。";
+    return;
+  }
+  if (state.communityFresh) {
+    dot.className = "status-dot online";
+    text.textContent = `已核对在线用户列表：${Object.keys(onlineUsers()).length} 个唯一 ID。`;
+    return;
+  }
+  dot.className = "status-dot syncing";
+  text.textContent = "正在读取在线用户列表…";
+}
+
+function updateLoginHint() {
+  const id = Core.normalizeUserId($("loginUserId").value);
+  const local = state.store.profiles?.[id];
+  const remote = onlineUsers()[id];
+  const hint = $("loginUserHint");
+  if (!id) {
+    hint.textContent = "可从本机 ID 和在线用户中选择。";
+  } else if (local && remote) {
+    hint.textContent = `本机已保存 · 在线所有者 @${remote.githubLogin || "待确认"} · ${remote.count || 0} 条公开记录`;
+  } else if (remote) {
+    hint.textContent = `在线 ID · 所有者 @${remote.githubLogin || "待确认"} · ${remote.count || 0} 条公开记录`;
+  } else if (local) {
+    hint.textContent = local.pendingRegistration
+      ? "本机待确认注册；请在 GitHub 完成注册 Issue。"
+      : "本机已保存，在线列表中暂未找到。";
+  } else {
+    hint.textContent = state.communityFresh ? "在线和本机均未找到该 ID，请改用“注册新 ID”。" : "尚未完成在线核对。";
+  }
+}
+
+function loginAndContinue() {
+  const id = Core.normalizeUserId($("loginUserId").value);
+  if (!isValidUserId(id) || isTemporaryUserId(id)) {
+    toast("请输入有效的已注册用户 ID。", "error");
+    return;
+  }
+  const local = state.store.profiles?.[id];
+  const remote = onlineUsers()[id];
+  if (!local && !remote) {
+    toast(state.communityFresh ? "该 ID 尚未注册，请切换到“注册新 ID”。" : "当前无法确认该 ID，请联网同步或使用本机保存的 ID。", "error");
+    return;
+  }
+  const name = Core.cleanText(local?.name || remote?.displayName || id, 60);
+  activateProfile({ id, name, pendingRegistration: Boolean(local?.pendingRegistration) }, $("rememberLoginInput").checked);
+  hideModal("authModal");
+  openSyncChoice();
+}
+
+function updateRegistrationAvailability() {
+  const id = Core.normalizeUserId($("registerUserId").value);
+  const status = $("registerIdStatus");
+  const button = $("registerContinueBtn");
+  status.className = "field-help uniqueness";
+  button.disabled = true;
+  if (!isValidUserId(id) || isTemporaryUserId(id)) {
+    status.textContent = "ID 需为 2–48 位小写字母、数字、_ 或 -，并以字母或数字开头。";
+    if (id) status.classList.add("error");
+    return;
+  }
+  if (!navigator.onLine || !state.communityFresh) {
+    status.textContent = "未完成在线用户核对，不能保证唯一性，暂不允许注册。";
+    status.classList.add("error");
+    return;
+  }
+  if (onlineUsers()[id]) {
+    status.textContent = `ID “${id}” 已由 @${onlineUsers()[id].githubLogin || "其他用户"} 注册。`;
+    status.classList.add("error");
+    return;
+  }
+  if (state.store.profiles?.[id]) {
+    status.textContent = "该 ID 已保存在本机，请从“登录已有 ID”进入。";
+    status.classList.add("error");
+    return;
+  }
+  status.textContent = `ID “${id}” 当前可用；GitHub 工作流会在提交时再次原子校验。`;
+  status.classList.add("ok");
+  button.disabled = false;
+}
+
+function registerAndContinue() {
+  updateRegistrationAvailability();
+  if ($("registerContinueBtn").disabled) return;
+  const id = Core.normalizeUserId($("registerUserId").value);
+  const name = Core.cleanText($("registerUserName").value || id, 60);
+  const opened = openOperationIssue({
+    operation: "register_user",
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    user: { id, name },
+    requestedAt: new Date().toISOString()
+  }, `[PSD-USER] 注册 ${id}`, "Grind-PSD 用户 ID 注册");
+  if (!opened) return;
+  activateProfile({ id, name, pendingRegistration: true }, true);
+  hideModal("authModal");
+  toast("已打开 GitHub 注册页；提交 Issue 后 ID 才会正式锁定。", "success");
+  openSyncChoice();
+}
+
+function activateProfile(profile, remember = true) {
+  const now = new Date().toISOString();
+  const id = Core.normalizeUserId(profile.id);
+  const normalized = {
+    id,
+    name: Core.cleanText(profile.name || id, 60),
+    createdAt: state.store.profiles?.[id]?.createdAt || now,
+    lastLoginAt: now,
+    pendingRegistration: Boolean(profile.pendingRegistration)
+  };
+  if (remember) state.store.profiles[id] = normalized;
+  else delete state.store.profiles[id];
+  state.store.user = { id, name: normalized.name, temporary: false };
+  state.store.activeUserId = remember ? id : "";
+  state.store.settings.rememberLogin = remember;
+  state.identityConfirmed = true;
+  state.browsingOnly = false;
+  saveStore();
+  updateActiveUser();
+}
+
+function exitAuthToBrowse() {
+  state.identityConfirmed = false;
+  state.browsingOnly = true;
+  hideModal("authModal");
+  updateActiveUser();
+  toast("已退出登录流程；可以浏览和下载公开数据。", "success");
+}
+
+function startMeasurementFlow() {
+  if (!state.identityConfirmed || state.browsingOnly || state.store.user.temporary) {
+    openAuthModal();
+    toast("开始测量前请先登录或注册用户 ID。", "error");
+    return;
+  }
+  openWizard({ preferRecent: true });
+}
+
+function getTemporaryRecords() {
+  return state.store.records.filter((record) => isTemporaryUserId(record.user?.id));
+}
+
+function getUnsyncedRecords({ includeTemporary = false } = {}) {
+  const remoteIds = new Set(state.communityRecords.map((record) => record.id));
+  return state.store.records.filter((record) => {
+    const mine = record.user?.id === state.store.user.id;
+    const temporary = includeTemporary && isTemporaryUserId(record.user?.id);
+    return (mine || temporary) && !remoteIds.has(record.id);
+  });
+}
+
+function openSyncChoice() {
+  $("syncChoiceUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
+  $("sessionSyncInput").checked = Boolean(state.store.settings.autoSync);
+  $("claimLocalInput").checked = getTemporaryRecords().length > 0;
+  $("uploadLocalInput").checked = false;
+  updateSyncChoiceSummary();
+  showModal("syncChoiceModal");
+}
+
+function updateSyncChoiceSummary() {
+  const temporaryCount = getTemporaryRecords().length;
+  $("claimLocalRow").hidden = temporaryCount === 0;
+  $("claimLocalTitle").textContent = `将 ${temporaryCount} 条本机临时记录归入当前 ID`;
+  $("claimLocalHint").textContent = `只改动以 local-/user- 开头的临时记录，不会改动其他正式用户的数据。`;
+  const includeTemporary = temporaryCount > 0 && $("claimLocalInput").checked;
+  const unsynced = getUnsyncedRecords({ includeTemporary });
+  $("uploadLocalRow").hidden = unsynced.length === 0;
+  $("uploadLocalTitle").textContent = `上传 ${unsynced.length} 条未同步的本地记录`;
+  const pieces = [
+    $("sessionSyncInput").checked ? "本次同步在线库" : "本次仅用本地库",
+    includeTemporary ? `归入 ${temporaryCount} 条临时记录` : "",
+    $("uploadLocalInput").checked && unsynced.length ? `准备上传 ${Math.min(unsynced.length, MAX_BATCH_RECORDS)} 条` : ""
+  ].filter(Boolean);
+  $("syncChoiceMessage").textContent = pieces.join(" · ");
+}
+
+function reassignTemporaryRecords() {
+  const now = new Date().toISOString();
+  state.store.records = state.store.records.map((record) => {
+    if (!isTemporaryUserId(record.user?.id)) return record;
+    return {
+      ...record,
+      user: { id: state.store.user.id, name: state.store.user.name },
+      updatedAt: now,
+      source: "local-claimed"
+    };
+  });
+}
+
+function continueFromSyncChoice() {
+  state.store.settings.autoSync = $("sessionSyncInput").checked;
+  if (!$("claimLocalRow").hidden && $("claimLocalInput").checked) {
+    reassignTemporaryRecords();
+  }
+  saveStore();
+  const unsynced = getUnsyncedRecords();
+  if (!$("uploadLocalRow").hidden && $("uploadLocalInput").checked && unsynced.length) {
+    openBatchSubmissionIssue(unsynced.slice(0, MAX_BATCH_RECORDS));
+  }
+  if ($("sessionSyncInput").checked && navigator.onLine) {
+    syncCommunity({ quiet: true });
+  }
+  hideModal("syncChoiceModal");
+  renderAll();
+  openWizard({ preferRecent: true });
+}
+
+function exitSyncChoice() {
+  state.store.settings.autoSync = $("sessionSyncInput").checked;
+  saveStore();
+  hideModal("syncChoiceModal");
+  renderAll();
+  toast("已退出启动流程；点击“开始测量”可随时继续。", "success");
+}
+
 function openSettings() {
+  if (!state.identityConfirmed || state.store.user.temporary) {
+    openAuthModal();
+    return;
+  }
   $("settingsUserId").value = state.store.user.id;
   $("settingsUserName").value = state.store.user.name;
   $("autoSyncInput").checked = Boolean(state.store.settings.autoSync);
@@ -436,20 +832,15 @@ function openSettings() {
 }
 
 function saveSettings() {
-  const id = Core.normalizeUserId($("settingsUserId").value);
+  const id = state.store.user.id;
   const name = Core.cleanText($("settingsUserName").value || id, 60);
-  if (!/^[a-z0-9][a-z0-9_-]{1,47}$/.test(id)) {
-    toast("用户 ID 必须为 2–48 位小写字母、数字、下划线或连字符。", "error");
-    return;
-  }
-
-  const previousId = state.store.user.id;
   const previousName = state.store.user.name;
-  state.store.user = { id, name };
+  state.store.user = { id, name, temporary: false };
+  if (state.store.profiles[id]) state.store.profiles[id].name = name;
   state.store.settings.autoSync = $("autoSyncInput").checked;
-  if (previousId !== id || previousName !== name) {
+  if (previousName !== name) {
     state.store.records = state.store.records.map((record) => {
-      if (record.user.id !== previousId) return record;
+      if (record.user.id !== id) return record;
       return { ...record, user: { id, name }, updatedAt: new Date().toISOString() };
     });
   }
@@ -461,17 +852,37 @@ function saveSettings() {
 
 function openWizard(options = {}) {
   state.wizard = freshWizard();
-  if (options.useLast && state.store.lastGrinder) {
+  const recent = isLastGrinderRecent();
+  if ((options.useLast || options.preferRecent) && recent) {
     Object.assign(state.wizard, state.store.lastGrinder);
   } else if (state.store.lastGrinder) {
     state.wizard.color = state.store.lastGrinder.color || PALETTE[0];
   }
+  if (options.prefill) Object.assign(state.wizard, options.prefill);
+  $("wizardTitle").textContent = state.wizard.mode === "edit-remote"
+    ? "编辑自己的社区记录"
+    : "选择或注册研磨设备";
   $("wizardUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
-  $("sameAsLastBtn").hidden = !state.store.lastGrinder;
+  $("sameAsLastBtn").hidden = !recent || state.wizard.mode === "edit-remote";
+  if (recent) {
+    $("sameAsLastBtn").textContent = `⚡ 继续 ${state.store.lastGrinder.brand} ${state.store.lastGrinder.model}`;
+  }
   clearWizardFields();
   renderWizardStep1();
-  goWizardStep(options.useLast ? 2 : 1);
+  goWizardStep(options.useLast || state.wizard.mode === "edit-remote" ? 2 : 1);
   showModal("wizard");
+}
+
+function isLastGrinderRecent() {
+  const timestamp = Date.parse(state.store.lastMeasurementAt || state.store.lastGrinder?.measuredAt || "");
+  return Boolean(state.store.lastGrinder && Number.isFinite(timestamp) && Date.now() - timestamp <= RECENT_GRINDER_WINDOW_MS);
+}
+
+function exitMeasurementFlow() {
+  clearTimeout(state.nextRoundTimer);
+  state.nextRoundTimer = null;
+  hideModal("wizard");
+  toast("已退出本轮测量，现有记录不会受影响。", "success");
 }
 
 function clearWizardFields() {
@@ -563,7 +974,7 @@ function changeProductColor() {
 }
 
 function sameAsLast() {
-  if (!state.store.lastGrinder) return;
+  if (!isLastGrinderRecent()) return;
   state.wizard = {
     ...freshWizard(),
     ...state.store.lastGrinder,
@@ -717,6 +1128,7 @@ function saveWizardRecord() {
   }
 
   const record = Core.createRecord({
+    id: state.wizard.targetRecordId || undefined,
     user: state.store.user,
     grinder: {
       brand: state.wizard.brand,
@@ -736,12 +1148,31 @@ function saveWizardRecord() {
     },
     weightsGrams: state.wizard.weightsGrams,
     notes: state.wizard.notes,
-    source: "local"
+    license: state.wizard.mode === "edit-remote" ? Core.DATA_LICENSE : null,
+    source: state.wizard.mode === "edit-remote" ? "local-remote-edit" : "local",
+    createdAt: state.wizard.createdAt || undefined,
+    updatedAt: new Date().toISOString()
   });
+
+  if (state.wizard.mode === "edit-remote") {
+    const opened = openOperationIssue({
+      operation: "update_record",
+      schemaVersion: Core.SCHEMA_VERSION,
+      standardId: Core.STANDARD_ID,
+      targetId: record.id,
+      record: buildPublicPayload(record, true),
+      requestedAt: new Date().toISOString()
+    }, `[PSD-EDIT] ${state.store.user.id} · ${record.id}`, "Grind-PSD 社区记录编辑");
+    if (!opened) return;
+  }
 
   const catalog = ensureCatalogEntry(state.store, record.grinder.brand, record.grinder.model, record.grinder.color);
   catalog.color = record.grinder.color;
-  state.store.records = dedupeRecords([record, ...state.store.records]);
+  state.store.records = dedupeRecords([
+    record,
+    ...state.store.records.filter((item) => item.id !== record.id)
+  ]);
+  const measuredAt = new Date().toISOString();
   state.store.lastGrinder = {
     brand: record.grinder.brand,
     model: record.grinder.model,
@@ -755,15 +1186,27 @@ function saveWizardRecord() {
     sieveDevice: record.sample.sieveDevice,
     method: record.sample.method,
     replicate: record.sample.replicate,
-    notes: ""
+    notes: "",
+    measuredAt
   };
+  state.store.lastMeasurementAt = measuredAt;
   state.selectedRecordId = record.id;
   state.selectedRecordSource = "local";
   saveStore();
   hideModal("wizard");
   renderAll();
   switchTab("current");
-  toast("记录已保存并生成图表。", "success");
+  if (state.wizard.mode === "edit-remote") {
+    toast("编辑已保存到本机，并打开 GitHub 变更申请。", "success");
+    return;
+  }
+  toast("记录已保存；正在进入下一轮设备选择。", "success");
+  clearTimeout(state.nextRoundTimer);
+  state.nextRoundTimer = setTimeout(() => {
+    if (state.identityConfirmed && $("wizard").classList.contains("hidden")) {
+      openWizard({ preferRecent: true });
+    }
+  }, 850);
 }
 
 function selectNewestRecord() {
@@ -794,7 +1237,7 @@ function renderCurrent() {
         <div class="empty-state">
           <div class="empty-icon">◌</div>
           <strong>暂无称重记录</strong>
-          <span>点击“＋ 新建称重记录”，按原版三步流程开始。</span>
+          <span>点击“＋ 开始测量”，按设备 → 刻度 → 五档称重流程开始。</span>
         </div>
       </div>`;
     return;
@@ -803,6 +1246,11 @@ function renderCurrent() {
   const quality = record.metrics.quality;
   const color = Core.normalizeHexColor(record.grinder.color);
   const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地记录";
+  const canManageCommunity = Boolean(
+    state.selectedRecordSource === "community" &&
+    state.identityConfirmed &&
+    record.user.id === state.store.user.id
+  );
   const rows = Core.SIEVES.map((sieve) => {
     const weight = record.weightsGrams[sieve.key] || 0;
     const pct = record.totalG ? weight / record.totalG * 100 : 0;
@@ -834,7 +1282,10 @@ function renderCurrent() {
         </div>
         <div class="panel-actions">
           ${state.selectedRecordSource === "community"
-            ? '<button class="primary small" type="button" data-current-action="import">导入本地</button>'
+            ? `<button class="primary small" type="button" data-current-action="import">导入本地</button>
+               ${canManageCommunity
+                 ? '<button class="ghost small" type="button" data-current-action="edit-community">编辑在线记录</button><button class="danger small" type="button" data-current-action="delete-community">删除在线记录</button>'
+                 : ""}`
             : '<button class="primary small" type="button" data-current-action="submit">提交到社区库</button>'}
           <button class="ghost small" type="button" data-current-action="export">导出本条 JSON</button>
           <button class="ghost small" type="button" data-current-action="print">打印</button>
@@ -880,6 +1331,8 @@ function renderCurrent() {
       if (action === "export") exportSingleRecord(record);
       if (action === "print") window.print();
       if (action === "import") importCommunityRecord(record.id);
+      if (action === "edit-community") editOwnedCommunityRecord(record.id);
+      if (action === "delete-community") requestDeleteCommunityRecord(record.id);
     });
   });
   $("currentChartUnit").addEventListener("change", renderCurrentChart);
@@ -951,7 +1404,13 @@ function recordTable(records, options = {}) {
         </tr>
       </thead>
       <tbody>
-        ${records.map((record) => `
+        ${records.map((record) => {
+          const canManageCommunity = Boolean(
+            options.community &&
+            state.identityConfirmed &&
+            record.user.id === state.store.user.id
+          );
+          return `
           <tr>
             ${options.community ? `<td class="select-cell"><input type="checkbox" data-community-select="${escapeHtml(record.id)}" ${state.selectedCommunityIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
             <td>${escapeHtml(record.user.id)}</td>
@@ -966,11 +1425,17 @@ function recordTable(records, options = {}) {
               <div class="row-actions">
                 <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
                 ${options.community
-                  ? `<button type="button" data-import-record="${escapeHtml(record.id)}">导入</button><button type="button" data-user-download="${escapeHtml(record.user.id)}">用户库</button>`
+                  ? `<button type="button" data-import-record="${escapeHtml(record.id)}">导入</button>
+                     <button type="button" data-user-download="${escapeHtml(record.user.id)}">用户库</button>
+                     ${canManageCommunity
+                       ? `<button type="button" data-edit-community="${escapeHtml(record.id)}">编辑</button>
+                          <button class="danger-inline" type="button" data-delete-community="${escapeHtml(record.id)}">删除</button>`
+                       : ""}`
                   : `<button type="button" data-clone-record="${escapeHtml(record.id)}">复测</button><button type="button" data-delete-record="${escapeHtml(record.id)}">删除</button>`}
               </div>
             </td>
-          </tr>`).join("")}
+          </tr>`;
+        }).join("")}
       </tbody>
     </table>`;
 }
@@ -995,6 +1460,12 @@ function bindRecordTableActions(container, community) {
   });
   container.querySelectorAll("[data-user-download]").forEach((button) => {
     button.addEventListener("click", () => downloadUserLibrary(button.dataset.userDownload));
+  });
+  container.querySelectorAll("[data-edit-community]").forEach((button) => {
+    button.addEventListener("click", () => editOwnedCommunityRecord(button.dataset.editCommunity));
+  });
+  container.querySelectorAll("[data-delete-community]").forEach((button) => {
+    button.addEventListener("click", () => requestDeleteCommunityRecord(button.dataset.deleteCommunity));
   });
   container.querySelectorAll("[data-community-select]").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
@@ -1040,6 +1511,11 @@ function clearLocalRecords() {
 }
 
 function cloneAsRetest(id) {
+  if (!state.identityConfirmed || state.store.user.temporary) {
+    openAuthModal();
+    toast("复测前请先登录对应用户 ID。", "error");
+    return;
+  }
   const record = state.store.records.find((item) => item.id === id);
   if (!record) return;
   state.wizard = {
@@ -1209,6 +1685,7 @@ async function syncCommunity({ quiet = false } = {}) {
       recordCount: database.recordCount ?? state.communityRecords.length,
       userCount: database.userCount ?? unique(state.communityRecords.map((record) => record.user.id)).length
     };
+    state.communityFresh = true;
     localStorage.setItem(COMMUNITY_CACHE_KEY, JSON.stringify({
       cachedAt: new Date().toISOString(),
       meta: state.communityMeta,
@@ -1222,11 +1699,16 @@ async function syncCommunity({ quiet = false } = {}) {
     renderCompare();
     updateNetworkStatus(`社区数据库已同步 · ${state.communityRecords.length} 条记录`);
     $("communityStatus").textContent = `已同步 ${state.communityRecords.length} 条记录`;
+    if ($("authNetworkStatus")) {
+      prepareAuthModal();
+    }
     if (!quiet) toast("社区数据库同步完成。", "success");
   } catch (error) {
+    state.communityFresh = false;
     updateNetworkStatus("社区数据库同步失败 · 本地记录不受影响");
     $("communityStatus").textContent = `同步失败：${error.message}`;
     if (!quiet) toast(`社区数据库同步失败：${error.message}`, "error");
+    if ($("authNetworkStatus")) updateAuthNetworkStatus();
   }
 }
 
@@ -1376,10 +1858,122 @@ async function downloadUserLibrary(userId) {
   }
 }
 
+function editOwnedCommunityRecord(id) {
+  const record = state.communityRecords.find((item) => item.id === id);
+  if (!record || record.user.id !== state.store.user.id || !state.identityConfirmed) {
+    toast("只能编辑当前登录 ID 自己的社区记录。", "error");
+    return;
+  }
+  ensureCatalogEntry(
+    state.store,
+    record.grinder.brand,
+    record.grinder.model,
+    record.grinder.color
+  );
+  saveStore();
+  openWizard({
+    prefill: {
+      mode: "edit-remote",
+      targetRecordId: record.id,
+      createdAt: record.createdAt,
+      brand: record.grinder.brand,
+      model: record.grinder.model,
+      color: record.grinder.color,
+      setting: record.grinder.setting,
+      settingOrder: record.grinder.settingOrder,
+      doseG: record.sample.doseG,
+      bean: record.sample.bean,
+      roastLevel: record.sample.roastLevel,
+      durationSec: record.sample.durationSec,
+      sieveDevice: record.sample.sieveDevice,
+      method: record.sample.method,
+      replicate: record.sample.replicate,
+      notes: record.notes,
+      weightsGrams: Core.normalizeWeights(record.weightsGrams)
+    }
+  });
+}
+
+function requestDeleteCommunityRecord(id) {
+  const record = state.communityRecords.find((item) => item.id === id);
+  if (!record || record.user.id !== state.store.user.id || !state.identityConfirmed) {
+    toast("只能删除当前登录 ID 自己的社区记录。", "error");
+    return;
+  }
+  if (!window.confirm(`申请删除社区记录 ${record.id}？GitHub 工作流会核对 Issue 提交账号。`)) return;
+  const opened = openOperationIssue({
+    operation: "delete_record",
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    userId: state.store.user.id,
+    targetId: record.id,
+    requestedAt: new Date().toISOString()
+  }, `[PSD-DELETE] ${state.store.user.id} · ${record.id}`, "Grind-PSD 社区记录删除");
+  if (opened) toast("已打开 GitHub 删除申请；账号校验通过后数据库才会删除。", "success");
+}
+
+function openBatchSubmissionIssue(records) {
+  const publicRecords = records
+    .map((record) => buildPublicPayload(record, true))
+    .filter((record) => Core.validatePublicRecord(record).errors.length === 0);
+  if (!publicRecords.length) {
+    toast("没有满足公开质量要求的本地记录可上传。", "error");
+    return false;
+  }
+  const skipped = records.length - publicRecords.length;
+  const opened = openOperationIssue({
+    operation: "upsert_records",
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    license: Core.DATA_LICENSE,
+    records: publicRecords,
+    requestedAt: new Date().toISOString()
+  }, `[PSD-BATCH] ${state.store.user.id} · ${publicRecords.length} 条记录`, "Grind-PSD 本地记录批量上传");
+  if (opened && skipped) {
+    toast(`${skipped} 条记录因回收率或字段不完整未加入上传。`, "error");
+  }
+  return opened;
+}
+
+function openOperationIssue(payload, title, heading) {
+  const payloadText = Array.isArray(payload.records) && payload.records.length > 1
+    ? JSON.stringify(payload)
+    : JSON.stringify(payload, null, 2);
+  const body = [
+    `## ${heading}`,
+    "",
+    "请勿修改以下标记之间的 JSON。自动工作流会核验 GitHub 账号、用户 ID、标准和原始克重。",
+    "",
+    "BEGIN_GRIND_PSD_JSON",
+    "```json",
+    payloadText,
+    "```",
+    "END_GRIND_PSD_JSON",
+    "",
+    `标准：\`${Core.STANDARD_ID}\``
+  ].join("\n");
+  const url = `https://github.com/${REPOSITORY}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  const opened = window.open(url, "_blank");
+  if (!opened) {
+    toast("浏览器阻止了 GitHub 新窗口，请允许弹窗后重试。", "error");
+    return false;
+  }
+  try {
+    opened.opener = null;
+  } catch (error) {
+    // Some browsers expose a read-only opener; the new tab still opened successfully.
+  }
+  return true;
+}
+
 function openSubmitModal() {
   const record = getSelectedRecord();
   if (!record || state.selectedRecordSource === "community") {
     toast("请先选择一条本地记录。", "error");
+    return;
+  }
+  if (!state.identityConfirmed || record.user.id !== state.store.user.id) {
+    toast("只能上传当前登录 ID 自己的本地记录。", "error");
     return;
   }
   $("licenseConsent").checked = false;
@@ -1465,27 +2059,15 @@ function openSubmissionIssue() {
     toast(validation.errors[0], "error");
     return;
   }
-  const title = `[PSD] ${record.user.id} · ${record.grinder.brand} ${record.grinder.model} · ${record.grinder.setting}`;
-  const body = [
-    "## Grind-PSD 标准数据提交",
-    "",
-    "请勿修改以下标记之间的 JSON。自动工作流会校验原始数据并写入社区数据库。",
-    "",
-    "BEGIN_GRIND_PSD_JSON",
-    "```json",
-    JSON.stringify(payload, null, 2),
-    "```",
-    "END_GRIND_PSD_JSON",
-    "",
-    `标准：\`${Core.STANDARD_ID}\``,
-    `数据许可：${Core.DATA_LICENSE}`
-  ].join("\n");
-  const url = `https://github.com/${REPOSITORY}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (!opened) {
-    toast("浏览器阻止了新窗口，请允许弹窗后重试。", "error");
-    return;
-  }
+  const opened = openOperationIssue({
+    operation: "upsert_records",
+    schemaVersion: Core.SCHEMA_VERSION,
+    standardId: Core.STANDARD_ID,
+    license: Core.DATA_LICENSE,
+    records: [payload],
+    requestedAt: new Date().toISOString()
+  }, `[PSD] ${record.user.id} · ${record.grinder.brand} ${record.grinder.model} · ${record.grinder.setting}`, "Grind-PSD 标准数据提交");
+  if (!opened) return;
   hideModal("submitModal");
   toast("已打开 GitHub。发布 Issue 后，数据会自动校验并入库。", "success");
 }
@@ -2099,4 +2681,16 @@ function toast(message, type = "") {
   toast.timer = setTimeout(() => {
     element.className = "toast";
   }, 3200);
+}
+
+function reportRuntimeFailure(reason) {
+  const message = reason instanceof Error ? reason.message : String(reason || "未知错误");
+  console.error("Grind-PSD runtime failure:", reason);
+  const strip = $("networkText");
+  if (strip) strip.textContent = `界面运行异常：${message}。请刷新页面以更新 App 缓存。`;
+  const element = $("toast");
+  if (element) {
+    element.textContent = `界面运行异常：${message}`;
+    element.className = "toast show error";
+  }
 }

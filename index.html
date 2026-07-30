@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Grind-PSD：按统一五段筛分标准记录、共享与对比咖啡研磨粒径分布。">
-  <meta name="theme-color" content="#14100d">
+  <meta name="description" content="Grind-PSD：按统一五段筛分标准连续记录、共享与对比咖啡研磨粒径分布。">
+  <meta name="theme-color" content="#100d0b">
   <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,9 +13,9 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="./assets/styles-v4.css">
   <script src="./assets/psd-core.js" defer></script>
-  <script src="./assets/app.js" defer></script>
+  <script src="./assets/app-v4.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -24,17 +24,25 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v3.0</span></h1>
-        <p>粉径分布分析器 · 五段筛分法 · 本地优先 · 社区数据库</p>
+        <h1>Grind-PSD <span class="version">v4.0</span></h1>
+        <p>粉径分布分析器 · 五段筛分法 · 连续测量 · 社区数据库</p>
       </div>
     </div>
     <div class="top-actions">
-      <button class="primary" id="newRecordBtn" type="button">＋ 新建称重记录</button>
+      <button class="primary" id="newRecordBtn" type="button">＋ 开始测量</button>
       <button class="ghost" id="syncBtn" type="button">同步社区库</button>
-      <button class="ghost" id="exportBtn" type="button">导出</button>
-      <button class="ghost" id="importBtn" type="button">导入</button>
-      <button class="ghost" id="installBtn" type="button">安装 App</button>
-      <button class="icon-button" id="settingsBtn" type="button" aria-label="用户与应用设置">⚙</button>
+      <details class="action-menu">
+        <summary>数据与 App</summary>
+        <div class="action-menu-popover">
+          <button class="ghost" id="exportBtn" type="button">导出全部本地数据</button>
+          <button class="ghost" id="importBtn" type="button">导入本地数据</button>
+          <button class="ghost" id="installBtn" type="button">安装 Grind-PSD App</button>
+        </div>
+      </details>
+      <button class="user-button" id="settingsBtn" type="button" aria-label="用户与应用设置">
+        <span class="user-avatar" id="activeUserAvatar">?</span>
+        <span id="activeUserButtonText">登录</span>
+      </button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
   </header>
@@ -43,7 +51,7 @@
     <span class="status-dot offline" id="networkDot"></span>
     <span id="networkText">正在检查网络与社区数据库…</span>
     <span class="status-spacer"></span>
-    <span id="activeUserText">本地用户：未设置</span>
+    <span id="activeUserText">尚未登录</span>
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Grind-PSD 功能">
@@ -64,7 +72,7 @@
           <div class="empty-state">
             <div class="empty-icon">◌</div>
             <strong>暂无称重记录</strong>
-            <span>点击“＋ 新建称重记录”，按原版三步流程开始。</span>
+            <span>点击“＋ 开始测量”，按设备 → 刻度 → 五档称重流程开始。</span>
           </div>
         </div>
       </div>
@@ -284,6 +292,107 @@
     </section>
   </main>
 
+  <div class="overlay hidden" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal auth-modal">
+      <div class="auth-hero">
+        <div class="brand-mark large" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div>
+          <span class="eyebrow">Grind-PSD v4.0</span>
+          <h2 id="authTitle">登录或注册测量 ID</h2>
+          <p>用户 ID 是公开数据库中的唯一身份。在线写入、编辑和删除最终由 GitHub 账号校验。</p>
+        </div>
+      </div>
+      <div class="segmented auth-switch" role="tablist" aria-label="登录或注册">
+        <button class="active" id="authLoginTab" type="button" role="tab" aria-selected="true">登录已有 ID</button>
+        <button id="authRegisterTab" type="button" role="tab" aria-selected="false">注册新 ID</button>
+      </div>
+      <div class="auth-network" id="authNetworkStatus">
+        <span class="status-dot syncing"></span>
+        <span>正在读取在线用户列表…</span>
+      </div>
+
+      <section id="authLoginPanel">
+        <label class="field">
+          <span>用户 ID <em>必填</em></span>
+          <input type="text" id="loginUserId" maxlength="48" autocomplete="username" list="knownUserIds" placeholder="输入已注册或本机保存的 ID">
+          <datalist id="knownUserIds"></datalist>
+          <span class="field-help" id="loginUserHint">可从本机 ID 和在线用户中选择。</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" id="rememberLoginInput" checked>
+          <span>在此设备保存该 ID</span>
+        </label>
+        <div class="modal-foot">
+          <button class="ghost left" id="authBrowseOnlyBtn" type="button">退出，仅浏览</button>
+          <button class="primary" id="loginContinueBtn" type="button">登录并继续 →</button>
+        </div>
+      </section>
+
+      <section id="authRegisterPanel" hidden>
+        <div class="form-grid compact">
+          <label class="field full">
+            <span>新用户 ID <em>必填</em></span>
+            <input type="text" id="registerUserId" maxlength="48" autocomplete="username" placeholder="2–48 位小写字母、数字、_ 或 -">
+            <span class="field-help uniqueness" id="registerIdStatus">联网读取用户列表后才能确认唯一性。</span>
+          </label>
+          <label class="field full">
+            <span>显示名称 <i>可选</i></span>
+            <input type="text" id="registerUserName" maxlength="60" placeholder="可使用中文，用于公开展示">
+          </label>
+        </div>
+        <div class="auth-explain">
+          <strong>注册如何生效</strong>
+          <p>网页先检查当前在线用户列表，再打开 GitHub 注册 Issue。工作流以提交 Issue 的 GitHub 账号锁定该 ID；它是防止重名和越权修改的最终校验。</p>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost left" id="authRegisterExitBtn" type="button">退出，仅浏览</button>
+          <button class="primary" id="registerContinueBtn" type="button" disabled>注册并继续 →</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="syncChoiceModal" role="dialog" aria-modal="true" aria-labelledby="syncChoiceTitle">
+    <div class="modal compact-modal">
+      <div class="step-header">
+        <div>
+          <span class="eyebrow">登录完成</span>
+          <h2 id="syncChoiceTitle">选择本次网络同步方式</h2>
+          <p id="syncChoiceUserLabel">—</p>
+        </div>
+        <div class="step-progress"><span class="on"></span><span></span><span></span></div>
+      </div>
+      <label class="choice-card">
+        <input type="checkbox" id="sessionSyncInput" checked>
+        <span>
+          <strong>同步社区用户与测量记录</strong>
+          <small>用于检查 ID、下载其他人的记录及在线对比。</small>
+        </span>
+      </label>
+      <label class="choice-card" id="claimLocalRow">
+        <input type="checkbox" id="claimLocalInput" checked>
+        <span>
+          <strong id="claimLocalTitle">归入本机临时记录</strong>
+          <small id="claimLocalHint">仅处理尚未绑定正式 ID 的本机记录。</small>
+        </span>
+      </label>
+      <label class="choice-card" id="uploadLocalRow">
+        <input type="checkbox" id="uploadLocalInput">
+        <span>
+          <strong id="uploadLocalTitle">上传未同步的本地记录</strong>
+          <small>将生成一个批量 GitHub Issue；工作流校验通过后才会写入数据库。</small>
+        </span>
+      </label>
+      <p class="validation-message" id="syncChoiceMessage"></p>
+      <div class="modal-foot">
+        <button class="ghost left" id="syncChoiceExitBtn" type="button">退出流程</button>
+        <button class="primary" id="syncChoiceContinueBtn" type="button">继续选择研磨设备 →</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay hidden" id="wizard" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
     <div class="modal wizard-modal">
       <button class="modal-close" data-close="wizard" type="button" aria-label="关闭">×</button>
@@ -291,8 +400,8 @@
       <section class="wizard-step" id="wizardStep1">
         <div class="step-header">
           <div>
-            <h2 id="wizardTitle">选择磨豆机</h2>
-            <p>步骤 1 / 3 · 品牌、型号与图表颜色</p>
+            <h2 id="wizardTitle">选择或注册研磨设备</h2>
+            <p>步骤 1 / 3 · 设备品牌、型号与图表颜色</p>
           </div>
           <div class="step-progress"><span class="on"></span><span></span><span></span></div>
         </div>
@@ -302,7 +411,7 @@
           <div class="tagwrap" id="brandTags"></div>
           <div class="addrow">
             <input type="text" id="newBrandInput" maxlength="80" placeholder="输入新品牌，如：泰摩 / 1Zpresso / Mahlkönig">
-            <button class="ghost" id="addBrandBtn" type="button">添加品牌</button>
+            <button class="ghost" id="addBrandBtn" type="button">注册品牌</button>
           </div>
         </div>
         <div class="field" id="modelField" hidden>
@@ -310,7 +419,7 @@
           <div class="tagwrap" id="modelTags"></div>
           <div class="addrow">
             <input type="text" id="newModelInput" maxlength="80" placeholder="输入型号，如：栗子 C3 / K-Ultra / EK43">
-            <button class="ghost" id="addModelBtn" type="button">添加型号</button>
+            <button class="ghost" id="addModelBtn" type="button">注册型号</button>
           </div>
         </div>
         <div class="field" id="colorField" hidden>
@@ -322,20 +431,20 @@
         </div>
         <div class="modal-foot">
           <button class="ghost left" id="sameAsLastBtn" type="button">⚡ 同款继续称重</button>
-          <button class="ghost" data-close="wizard" type="button">取消</button>
-          <button class="primary" id="wizardNext1" type="button" disabled>下一步：刻度与条件 →</button>
+          <button class="ghost" data-close="wizard" type="button">退出本轮</button>
+          <button class="primary" id="wizardNext1" type="button" disabled>下一步：选择刻度 →</button>
         </div>
       </section>
 
       <section class="wizard-step" id="wizardStep2" hidden>
         <div class="step-header">
           <div>
-            <h2>刻度与测量条件</h2>
+            <h2>选择研磨刻度</h2>
             <p>步骤 2 / 3 · <span id="step2GrinderLabel"></span></p>
           </div>
           <div class="step-progress"><span class="on"></span><span class="on"></span><span></span></div>
         </div>
-        <div class="form-grid">
+        <div class="form-grid compact">
           <label class="field full">
             <span>研磨刻度 <em>必填</em></span>
             <input type="text" id="dialInput" maxlength="80" placeholder="如：18 / 3.5 / 2圈+5格">
@@ -350,45 +459,51 @@
             <span>投粉量 g <em>公开必填</em></span>
             <input type="number" id="doseInput" min="1" max="200" step="0.01" inputmode="decimal" value="10.00">
           </label>
-          <label class="field">
-            <span>咖啡豆/样品 <i>可选</i></span>
-            <input type="text" id="beanInput" maxlength="120" placeholder="如：水洗浅烘埃塞">
-          </label>
-          <label class="field">
-            <span>烘焙度 <i>可选</i></span>
-            <select id="roastInput">
-              <option value="">未记录</option>
-              <option value="极浅烘">极浅烘</option>
-              <option value="浅烘">浅烘</option>
-              <option value="中浅烘">中浅烘</option>
-              <option value="中烘">中烘</option>
-              <option value="中深烘">中深烘</option>
-              <option value="深烘">深烘</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>筛分时长 s <em>公开必填</em></span>
-            <input type="number" id="durationInput" min="1" max="3600" step="1" inputmode="numeric" value="60">
-          </label>
-          <label class="field">
-            <span>筛具/装置 <em>公开必填</em></span>
-            <input type="text" id="deviceInput" maxlength="80" value="Grind-PSD 五段筛具" placeholder="筛具品牌、型号或自制装置">
-          </label>
-          <label class="field">
-            <span>筛分方法</span>
-            <input type="text" id="methodInput" maxlength="120" value="手动水平往复筛分" placeholder="动作、设备与振幅说明">
-          </label>
-          <label class="field">
-            <span>独立重复序号</span>
-            <input type="number" id="replicateInput" min="1" max="99" step="1" inputmode="numeric" value="1">
-          </label>
-          <label class="field full">
-            <span>备注 <i>可选</i></span>
-            <textarea id="notesInput" maxlength="500" rows="3" placeholder="静电处理、RDT、筛分异常、环境条件等"></textarea>
-          </label>
         </div>
+        <details class="advanced-options">
+          <summary>高级测量条件 <span>公开上传时用于保证可比性</span></summary>
+          <div class="form-grid">
+            <label class="field">
+              <span>咖啡豆/样品 <i>可选</i></span>
+              <input type="text" id="beanInput" maxlength="120" placeholder="如：水洗浅烘埃塞">
+            </label>
+            <label class="field">
+              <span>烘焙度 <i>可选</i></span>
+              <select id="roastInput">
+                <option value="">未记录</option>
+                <option value="极浅烘">极浅烘</option>
+                <option value="浅烘">浅烘</option>
+                <option value="中浅烘">中浅烘</option>
+                <option value="中烘">中烘</option>
+                <option value="中深烘">中深烘</option>
+                <option value="深烘">深烘</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>筛分时长 s <em>公开必填</em></span>
+              <input type="number" id="durationInput" min="1" max="3600" step="1" inputmode="numeric" value="60">
+            </label>
+            <label class="field">
+              <span>筛具/装置 <em>公开必填</em></span>
+              <input type="text" id="deviceInput" maxlength="80" value="Grind-PSD 五段筛具" placeholder="筛具品牌、型号或自制装置">
+            </label>
+            <label class="field">
+              <span>筛分方法</span>
+              <input type="text" id="methodInput" maxlength="120" value="手动水平往复筛分" placeholder="动作、设备与振幅说明">
+            </label>
+            <label class="field">
+              <span>独立重复序号</span>
+              <input type="number" id="replicateInput" min="1" max="99" step="1" inputmode="numeric" value="1">
+            </label>
+            <label class="field full">
+              <span>备注 <i>可选</i></span>
+              <textarea id="notesInput" maxlength="500" rows="3" placeholder="静电处理、RDT、筛分异常、环境条件等"></textarea>
+            </label>
+          </div>
+        </details>
         <div class="modal-foot">
-          <button class="ghost" id="wizardBack2" type="button">← 上一步</button>
+          <button class="ghost left" id="wizardBack2" type="button">← 上一步</button>
+          <button class="ghost" id="wizardExit2" type="button">退出本轮</button>
           <button class="primary" id="wizardNext2" type="button">确定，进入称重 →</button>
         </div>
       </section>
@@ -412,8 +527,9 @@
         </div>
         <p class="validation-message" id="weightValidation"></p>
         <div class="modal-foot">
-          <button class="ghost" id="wizardBack3" type="button">← 上一步</button>
-          <button class="primary" id="saveRecordBtn" type="button">✓ 保存记录并生成图表</button>
+          <button class="ghost left" id="wizardBack3" type="button">← 上一步</button>
+          <button class="ghost" id="wizardExit3" type="button">退出本轮</button>
+          <button class="primary" id="saveRecordBtn" type="button">✓ 保存并开始下一轮</button>
         </div>
       </section>
     </div>
@@ -423,10 +539,10 @@
     <div class="modal compact-modal">
       <button class="modal-close" data-close="settingsModal" type="button" aria-label="关闭">×</button>
       <h2 id="settingsTitle">用户与本地设置</h2>
-      <p class="modal-intro">用户 ID 用于公开数据库的独立文件名。它是公开命名空间，不是登录凭据；提交者 GitHub 账号会单独记录用于审计。</p>
+      <p class="modal-intro">用户 ID 是公开数据库的唯一命名空间。ID 不在设置中直接改名；切换身份需重新登录，以免本地记录被错误改归属。</p>
       <label class="field">
-        <span>公开用户 ID <em>必填</em></span>
-        <input type="text" id="settingsUserId" maxlength="48" autocomplete="username" placeholder="2–48 位小写字母、数字、_ 或 -">
+        <span>当前用户 ID</span>
+        <input type="text" id="settingsUserId" maxlength="48" readonly>
       </label>
       <label class="field">
         <span>显示名称 <i>可选</i></span>
@@ -437,6 +553,7 @@
         <span>联网时自动同步社区数据库</span>
       </label>
       <div class="modal-foot">
+        <button class="ghost left" id="switchUserBtn" type="button">切换用户</button>
         <button class="ghost" data-close="settingsModal" type="button">取消</button>
         <button class="primary" id="saveSettingsBtn" type="button">保存设置</button>
       </div>
