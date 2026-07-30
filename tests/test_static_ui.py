@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v100_network_first_shell(self):
+    def test_service_worker_uses_v101_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.0.0", service_worker)
+        self.assertIn("grind-psd-shell-v1.0.1", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -144,9 +144,34 @@ class StaticUiTests(unittest.TestCase):
         manifest = (ROOT / "manifest.webmanifest").read_text(encoding="utf-8")
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
-        self.assertIn("v1.0 正式版", html)
+        settings_block = html[html.index('id="settingsModal"'):]
+        self.assertIn("1.0 正式版", settings_block)
+        topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
+        self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
         self.assertIn('"version": "1.0.0"', manifest)
+
+    def test_samsung_safe_responsive_shell_and_reworked_controls(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        css = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
+        standard = html[html.index('id="tab-standard"'):html.index('id="historyFilterModal"')]
+        history = html[html.index('id="tab-history"'):html.index('id="tab-array3d"')]
+        topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
+        self.assertIn('class="gear-button"', topbar)
+        self.assertIn('id="menuSyncDot"', topbar)
+        self.assertNotIn('id="activeUserButtonText"', topbar)
+        self.assertIn("称测数据质量可信度等级", standard)
+        self.assertNotIn("数据库字段", standard)
+        self.assertIn('class="pan-label"', app)
+        self.assertIn('id="selectAllHistoryBtn"', history)
+        self.assertIn('class="record-manage-menu"', history)
+        self.assertNotIn("点击单行记录展开详情", history)
+        self.assertIn("overflow-x: clip", css)
+        self.assertIn("@media (max-width: 390px)", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) auto", css)
+        self.assertIn("function selectAllHistory()", app)
+        self.assertIn("updateNetworkStatus.hideTimer", app)
 
 
 if __name__ == "__main__":

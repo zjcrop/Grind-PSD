@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Grind-PSD：以五张筛网形成六个质量分段，记录与对比咖啡研磨粒径分布。">
-  <meta name="theme-color" content="#100d0b">
+  <meta name="theme-color" content="#000000">
   <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -31,26 +31,27 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
       <div>
-        <h1>Grind-PSD <span class="version">v1.0 正式版</span></h1>
-        <p>粉径分布分析器 · 五筛六分段 · 本地优先/云端同步</p>
+        <h1>Grind-PSD</h1>
       </div>
     </div>
     <div class="top-actions">
       <button class="primary" id="newRecordBtn" type="button">＋ 开始称测</button>
       <button class="ghost" id="syncBtn" type="button" hidden>同步社区库</button>
-      <details class="action-menu">
-        <summary>数据与 App <span class="menu-sync-dot" id="menuSyncDot" hidden aria-label="云端同步状态"></span></summary>
-        <div class="action-menu-popover">
-          <button class="ghost" id="uploadCloudBtn" type="button">上传到服务器</button>
-          <button class="ghost" id="exportBtn" type="button">导出全部本地数据</button>
-          <button class="ghost" id="importBtn" type="button">导入本地数据</button>
-          <button class="ghost" id="installBtn" type="button">安装 Grind-PSD App</button>
-        </div>
-      </details>
-      <button class="user-button" id="settingsBtn" type="button" aria-label="用户与应用设置">
-        <span class="user-avatar" id="activeUserAvatar">?</span>
-        <span id="activeUserButtonText">登录</span>
-      </button>
+      <div class="settings-cluster">
+        <details class="action-menu">
+          <summary class="gear-button" aria-label="数据、App、账号与软件设置" title="设置">⚙</summary>
+          <div class="action-menu-popover">
+            <span class="menu-section-title">数据与 App</span>
+            <button class="ghost" id="uploadCloudBtn" type="button">上传到服务器</button>
+            <button class="ghost" id="exportBtn" type="button">导出全部本地数据</button>
+            <button class="ghost" id="importBtn" type="button">导入本地数据</button>
+            <button class="ghost" id="installBtn" type="button">安装 Grind-PSD App</button>
+            <span class="menu-section-title">账号与软件</span>
+            <button class="ghost" id="settingsBtn" type="button">账号、设置与软件介绍</button>
+          </div>
+        </details>
+        <span class="menu-sync-dot" id="menuSyncDot" hidden aria-label="云端同步状态"></span>
+      </div>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
   </header>
@@ -92,13 +93,18 @@
     <section id="tab-history" class="tab-panel" role="tabpanel" hidden>
       <div class="panel">
         <div class="panel-head">
-          <h2>全部本地称重记录 <span class="hint">点击单行记录展开详情</span></h2>
-          <div class="panel-actions">
-            <button class="ghost small" id="exportCsvBtn" type="button">导出 CSV</button>
-            <button class="danger small" id="clearRecordsBtn" type="button">清空本地记录</button>
+          <h2>全部本地称重记录</h2>
+          <div class="panel-actions history-head-actions">
+            <button class="ghost small filter-trigger" id="openHistoryFilterBtn" type="button">筛选</button>
+            <details class="record-manage-menu">
+              <summary>管理</summary>
+              <div>
+                <button class="ghost small" id="exportCsvBtn" type="button">导出 CSV</button>
+                <button class="danger small" id="clearRecordsBtn" type="button">清空本地记录</button>
+              </div>
+            </details>
           </div>
         </div>
-        <button class="ghost small filter-trigger" id="openHistoryFilterBtn" type="button">筛选</button>
         <div class="filters history-filters" id="historyFilters" hidden>
           <label>
             <span>搜索</span>
@@ -140,6 +146,7 @@
           <span id="historySelectionStatus">已选择 0 / 10 条（至少选择 2 条）</span>
           <div class="panel-actions">
             <button class="ghost small" id="clearHistorySelectionBtn" type="button">清除选择</button>
+            <button class="ghost small" id="selectAllHistoryBtn" type="button">全选</button>
             <button class="primary small" id="compareHistorySelectionBtn" type="button" disabled>对比所选</button>
           </div>
         </div>
@@ -294,13 +301,13 @@
           <h2>筛层定义</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>记录档</th><th>标称区间</th><th>数据库字段</th></tr></thead>
+              <thead><tr><th>记录档</th><th>标称区间</th></tr></thead>
               <tbody id="standardRows"></tbody>
             </table>
           </div>
         </div>
         <div class="panel">
-          <h2>质量等级</h2>
+          <h2>称测数据质量可信度等级</h2>
           <div class="grade-list">
             <div><span class="grade grade-a">A</span><strong>高可比</strong><p>质量回收误差 ≤2%，且筛具与时长记录完整。</p></div>
             <div><span class="grade grade-b">B</span><strong>可比</strong><p>质量回收误差 ≤5%。</p></div>
@@ -347,7 +354,7 @@
           <span></span><span></span><span></span><span></span><span></span>
         </div>
         <div>
-        <span class="eyebrow">Grind-PSD v7.2.2</span>
+        <span class="eyebrow">安全云端账户</span>
           <h2 id="authTitle">登录或注册云端账户</h2>
           <p>测量仍先保存在本机；登录后通过 Supabase RLS 同步到你的专属空间。</p>
         </div>
@@ -640,8 +647,8 @@
   <div class="overlay hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="modal compact-modal">
       <button class="modal-close" data-close="settingsModal" type="button" aria-label="关闭">×</button>
-      <h2 id="settingsTitle">用户与本地设置</h2>
-      <p class="modal-intro">账户与记录仅保存在当前浏览器。切换身份需重新登录，以免本地记录被错误归属。</p>
+      <h2 id="settingsTitle">账号、数据与 App</h2>
+      <p class="modal-intro">Grind-PSD 1.0 正式版 · 五筛六分段粉径分布分析器。本地记录优先保存，登录后可校验并同步至个人云端空间。</p>
       <label class="field">
         <span>当前用户 ID</span>
         <input type="text" id="settingsUserId" maxlength="48" readonly>
@@ -654,6 +661,12 @@
         <input type="checkbox" id="autoSyncInput" checked>
         <span>联网时自动同步社区数据库</span>
       </label>
+      <div class="app-about">
+        <strong>软件信息</strong>
+        <span>版本：1.0 正式版</span>
+        <span>测量标准：Grind-PSD 五筛六分段标准 v2</span>
+        <span>数据策略：本地优先 / Supabase 账号云端同步</span>
+      </div>
       <label class="check-row" hidden>
         <input type="checkbox" id="autoUploadInput">
         <span>保存后自动上传符合公开标准的记录</span>

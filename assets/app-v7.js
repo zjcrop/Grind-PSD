@@ -4,7 +4,7 @@
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "7.2.0";
+const APP_VERSION = "1.0.1";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -517,6 +517,7 @@ function bindEvents() {
   });
   $("historyBrandFilter").addEventListener("change", refreshHistoryFilters);
   $("clearHistorySelectionBtn").addEventListener("click", clearHistorySelection);
+  $("selectAllHistoryBtn").addEventListener("click", selectAllHistory);
   $("compareHistorySelectionBtn").addEventListener("click", compareHistorySelection);
   $("editCompareSelectionBtn").addEventListener("click", () => switchTab("history"));
   $("exportCsvBtn").addEventListener("click", () => exportRecordsCsv(getFilteredHistoryRecords(), "grind-psd-local"));
@@ -678,10 +679,6 @@ function updateActiveUser() {
     ? `${state.store.user.name} · ${state.store.user.id}`
     : "尚未登录 · 仅浏览";
   $("activeUserText").textContent = label;
-  $("activeUserButtonText").textContent = active ? state.store.user.id : "登录";
-  $("activeUserAvatar").textContent = active
-    ? (state.store.user.name || state.store.user.id).slice(0, 1).toUpperCase()
-    : "?";
 }
 
 function updateNetworkStatus(message = "") {
@@ -690,6 +687,10 @@ function updateNetworkStatus(message = "") {
   $("networkText").textContent = message || (online
     ? (Cloud?.isSignedIn() ? "本地优先 · Supabase 已连接" : "本地优先 · 登录后同步")
     : "离线模式 · 本地记录功能正常");
+  clearTimeout(updateNetworkStatus.hideTimer);
+  if (message && /(?:完成|成功|一致|已同步)/.test(message)) {
+    updateNetworkStatus.hideTimer = setTimeout(() => updateNetworkStatus(), 3200);
+  }
 }
 
 function setCloudSyncIndicator(status = "") {
@@ -1847,6 +1848,16 @@ function clearHistorySelection() {
   state.selectedHistoryIds.clear();
   renderHistory();
   renderMultiCompare();
+}
+
+function selectAllHistory() {
+  const records = getFilteredHistoryRecords();
+  state.selectedHistoryIds = new Set(records.slice(0, MAX_COMPARE_RECORDS).map((record) => record.id));
+  renderHistory();
+  renderMultiCompare();
+  if (records.length > MAX_COMPARE_RECORDS) {
+    toast(`对比最多支持 ${MAX_COMPARE_RECORDS} 条，已选择当前筛选结果的前 ${MAX_COMPARE_RECORDS} 条。`);
+  }
 }
 
 function compareHistorySelection() {
@@ -3043,9 +3054,10 @@ function importLegacyV1Object(v1) {
 function buildStandardRows() {
   $("standardRows").innerHTML = Core.SIEVES.map((sieve) => `
     <tr>
-      <td>${escapeHtml(sieve.label)}</td>
+      <td>${sieve.key === "pan_lt180_g"
+        ? '<span class="pan-label">低于 80 目<small>筛下</small></span>'
+        : escapeHtml(sieve.label)}</td>
       <td>${escapeHtml(sieve.range)}</td>
-      <td><code>${escapeHtml(sieve.key)}</code></td>
     </tr>`).join("");
 }
 
