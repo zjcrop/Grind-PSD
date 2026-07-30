@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class StaticUiTests(unittest.TestCase):
     def test_every_bound_static_id_exists(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "assets" / "app-v4.js").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
         html_ids = set(re.findall(r"""\bid=["']([^"']+)["']""", html))
         bind_block = script.split("function bindEvents()", 1)[1].split(
             "function handleKeyboard", 1
@@ -23,7 +23,7 @@ class StaticUiTests(unittest.TestCase):
             "authModal",
             "authLoginPanel",
             "authRegisterPanel",
-            "syncChoiceModal",
+            "sel3dOverlay",
             "wizardStep1",
             "wizardStep2",
             "wizardStep3",
@@ -32,13 +32,46 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v4_network_first_shell(self):
+    def test_service_worker_uses_v5_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v4.0.0", service_worker)
+        pages_workflow = (
+            ROOT / ".github" / "workflows" / "pages.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("grind-psd-shell-v5.1.0", service_worker)
         self.assertRegex(
             service_worker,
-            r'endsWith\("/assets/app-v4\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
+            r'endsWith\("/assets/app-v5\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
         )
+        self.assertIn("node --check assets/app-v5.js", pages_workflow)
+        self.assertNotIn("node --check assets/app-v4.js", pages_workflow)
+
+    def test_all_canvas_charts_use_two_to_one_runtime_ratio(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
+        self.assertNotRegex(html, r"<canvas[^>]+\bheight=")
+        self.assertIn("const height = Math.round(width / 2);", script)
+        self.assertRegex(styles, r"canvas\s*\{[\s\S]*?aspect-ratio:\s*2\s*/\s*1")
+
+    def test_local_only_runtime_and_persisted_login(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        init_block = script.split("async function init()", 1)[1].split(
+            "function restoreLocalSession", 1
+        )[0]
+        self.assertIn("restoreLocalSession();", init_block)
+        self.assertIn("if (!state.identityConfirmed)", init_block)
+        self.assertNotIn("syncCommunity(", init_block)
+        self.assertIn('id="syncBtn" type="button" hidden', html)
+        self.assertIn('data-tab="syncLog" type="button" hidden', html)
+
+    def test_save_ends_round_without_automatic_restart(self):
+        script = (ROOT / "assets" / "app-v5.js").read_text(encoding="utf-8")
+        save_block = script.split("async function saveWizardRecord()", 1)[1].split(
+            "function selectNewestRecord", 1
+        )[0]
+        self.assertIn("点击“开始称测”可进行下一次测量", save_block)
+        self.assertNotIn("openWizard({ preferRecent: true })", save_block)
 
 
 if __name__ == "__main__":
