@@ -1,9 +1,18 @@
 {
   "schemaVersion": "3.0.0",
   "standardId": "grind-psd-sieve-v1",
-  "updatedAt": "2026-07-29T00:00:00Z",
-  "userCount": 0,
+  "updatedAt": "2026-07-30T02:23:23.223242Z",
+  "userCount": 1,
   "recordCount": 0,
-  "users": {},
+  "users": {
+    "zj_crop-163-com": {
+      "displayName": "庄稼",
+      "githubLogin": "zjcrop",
+      "file": "data/users/zj_crop-163-com.json",
+      "count": 0,
+      "registeredAt": "2026-07-30T02:23:23.223242Z",
+      "updatedAt": "2026-07-30T02:23:23.223242Z"
+    }
+  },
   "records": []
 }
