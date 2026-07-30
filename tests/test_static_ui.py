@@ -32,16 +32,20 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v721_network_first_shell(self):
+    def test_service_worker_uses_v722_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v7.2.1", service_worker)
-        self.assertIn("./assets/supabase-sync.js", service_worker)
+        self.assertIn("grind-psd-shell-v7.2.2", service_worker)
+        self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
             r'endsWith\("/assets/app-v7\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
+        )
+        self.assertRegex(
+            service_worker,
+            r'endsWith\("/assets/supabase-sync-v7\.2\.2\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
         )
         self.assertIn("node --check assets/app-v7.js", pages_workflow)
         self.assertNotIn("node --check assets/app-v4.js", pages_workflow)
@@ -106,7 +110,7 @@ class StaticUiTests(unittest.TestCase):
     def test_verified_cloud_upload_ui(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
-        cloud = (ROOT / "assets" / "supabase-sync.js").read_text(encoding="utf-8")
+        cloud = (ROOT / "assets" / "supabase-sync-v7.2.2.js").read_text(encoding="utf-8")
         styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
         self.assertIn('id="uploadCloudBtn"', html)
         self.assertIn('id="menuSyncDot"', html)
@@ -125,7 +129,7 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("record.user?.id === state.store.user.id", upload_block)
 
     def test_signup_redirects_to_project_directory(self):
-        cloud = (ROOT / "assets" / "supabase-sync.js").read_text(encoding="utf-8")
+        cloud = (ROOT / "assets" / "supabase-sync-v7.2.2.js").read_text(encoding="utf-8")
         self.assertIn("function authRedirectUrl()", cloud)
         self.assertIn("const SUPABASE_URL =", cloud)
         self.assertNotRegex(cloud, r"\bconst\s+URL\s*=")
