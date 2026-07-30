@@ -32,12 +32,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v71_network_first_shell(self):
+    def test_service_worker_uses_v72_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v7.1.0", service_worker)
+        self.assertIn("grind-psd-shell-v7.2.0", service_worker)
         self.assertIn("./assets/supabase-sync.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -115,6 +115,21 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("async function verifyRecord(record)", cloud)
         self.assertIn("measurement_fractions(", cloud)
         self.assertIn(".record-cloud-dot", styles)
+
+    def test_manual_cloud_backup_includes_legacy_local_owners(self):
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        upload_block = script.split(
+            "async function uploadAllRecordsToCloud()", 1
+        )[1].split("function isValidUserId", 1)[0]
+        self.assertIn("const localRecords = [...state.store.records];", upload_block)
+        self.assertNotIn("record.user?.id === state.store.user.id", upload_block)
+
+    def test_signup_redirects_to_project_directory(self):
+        cloud = (ROOT / "assets" / "supabase-sync.js").read_text(encoding="utf-8")
+        self.assertIn("function authRedirectUrl()", cloud)
+        self.assertIn("redirect_to=${encodeURIComponent(authRedirectUrl())}", cloud)
+        self.assertIn('hash.has("access_token")', cloud)
+        self.assertIn('code === "otp_expired"', cloud)
 
 
 if __name__ == "__main__":
