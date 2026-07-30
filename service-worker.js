@@ -1,12 +1,12 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v7.2.1";
-const DATA_CACHE = "grind-psd-data-v7.2.1";
+const SHELL_CACHE = "grind-psd-shell-v7.2.2";
+const DATA_CACHE = "grind-psd-data-v7.2.2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./assets/psd-core.js",
-  "./assets/supabase-sync.js",
+  "./assets/supabase-sync-v7.2.2.js",
   "./assets/app-v7.js",
   "./assets/styles-v5.css",
   "./assets/icon.svg",
@@ -57,6 +57,7 @@ self.addEventListener("fetch", (event) => {
 
   if (
     url.pathname.endsWith("/assets/app-v7.js") ||
+    url.pathname.endsWith("/assets/supabase-sync-v7.2.2.js") ||
     url.pathname.endsWith("/assets/psd-core.js") ||
     url.pathname.endsWith("/assets/styles-v5.css") ||
     url.pathname.endsWith("/data/app-config.json") ||
