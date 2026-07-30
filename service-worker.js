@@ -1,6 +1,6 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v1.2";
+const SHELL_CACHE = "grind-psd-shell-v1.2.1";
 const DATA_CACHE = "grind-psd-data-v1.2";
 const APP_SHELL = [
   "./",

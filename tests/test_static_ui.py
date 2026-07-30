@@ -186,12 +186,26 @@ class StaticUiTests(unittest.TestCase):
             "function renderMultiCompare", 1
         )[0]
         for expected in (
-            '$("singleRecordSummary").innerHTML = renderRecordSummaryPanel',
+            "summaryContainer.innerHTML = renderRecordSummaryPanel",
             "本地历史记录",
             "完整记录",
             'drawBarChart($("canvasRecordDetail")',
         ):
             self.assertIn(expected, detail_block)
+
+    def test_single_history_detail_tolerates_old_cached_html_shell(self):
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
+        detail_block = script.split("function renderRecordDetail()", 1)[1].split(
+            "function renderMultiCompare", 1
+        )[0]
+        self.assertIn(
+            'const summaryContainer = $("singleRecordSummary") || $("singleRecordMeta")',
+            detail_block,
+        )
+        self.assertIn("if (summaryContainer)", detail_block)
+        self.assertIn("if (chartTitle)", detail_block)
+        self.assertIn('grind-psd-shell-v1.2.1', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
