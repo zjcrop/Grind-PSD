@@ -182,11 +182,16 @@
           </div>
         </div>
         <div id="singleRecordDetail">
-          <div id="singleRecordMeta" class="record-detail-meta"></div>
-          <div class="canvas-scroll">
-            <canvas id="canvasRecordDetail" role="img" aria-label="单条称测记录粒径分布柱状图"></canvas>
+          <div id="singleRecordSummary"></div>
+          <div class="panel">
+            <div class="chart-toolbar">
+              <h2 id="singleRecordChartTitle">粉径分布柱状图</h2>
+            </div>
+            <div class="canvas-scroll">
+              <canvas id="canvasRecordDetail" role="img" aria-label="单条称测记录粒径分布柱状图"></canvas>
+            </div>
+            <p class="note" id="singleRecordNote">从“当前记录”或“历史记录”中查看一条记录。</p>
           </div>
-          <p class="note" id="singleRecordNote">从“当前记录”或“历史记录”中查看一条记录。</p>
         </div>
         <div id="multiRecordDetail" hidden>
           <div id="multiCompareLegend" class="multi-compare-legend"></div>

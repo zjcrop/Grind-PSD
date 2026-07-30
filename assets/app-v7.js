@@ -1571,14 +1571,28 @@ function renderCurrent() {
     return;
   }
 
+  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地记录";
+  container.innerHTML = `
+    ${renderRecordSummaryPanel(record, sourceLabel, { actions: true })}
+    <div class="panel">
+      <div class="chart-toolbar">
+        <h2>粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span></h2>
+        <select id="currentChartUnit" aria-label="当前图表单位">
+          <option value="g">重量 g</option>
+          <option value="pct">占比 %</option>
+        </select>
+      </div>
+      <div class="canvas-scroll"><canvas id="canvasBar" aria-label="当前记录粒径分布柱状图"></canvas></div>
+    </div>`;
+
+  bindRecordSummaryActions(container, record);
+  $("currentChartUnit").addEventListener("change", renderCurrentChart);
+  renderCurrentChart();
+}
+
+function renderRecordSummaryPanel(record, sourceLabel, { actions = false } = {}) {
   const quality = record.metrics.quality;
   const color = Core.normalizeHexColor(record.grinder.color);
-  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地记录";
-  const canManageCommunity = Boolean(
-    state.selectedRecordSource === "community" &&
-    state.identityConfirmed &&
-    record.user.id === state.store.user.id
-  );
   const rows = Core.getRecordSieves(record).map((sieve) => {
     const weight = record.weightsGrams[sieve.key] || 0;
     const pct = record.totalG ? weight / record.totalG * 100 : 0;
@@ -1594,7 +1608,7 @@ function renderCurrent() {
       </tr>`;
   }).join("");
 
-  container.innerHTML = `
+  return `
     <div class="panel">
       <div class="record-header">
         <div>
@@ -1610,10 +1624,10 @@ function renderCurrent() {
             <span class="badge">${escapeHtml(formatDateTime(record.createdAt))}</span>
           </div>
         </div>
-        <div class="panel-actions">
-          <button class="ghost small" type="button" data-current-action="export">导出本条 JSON</button>
-          <button class="ghost small" type="button" data-current-action="print">打印</button>
-        </div>
+        ${actions ? `<div class="panel-actions">
+          <button class="ghost small" type="button" data-record-summary-action="export">导出本条 JSON</button>
+          <button class="ghost small" type="button" data-record-summary-action="print">打印</button>
+        </div>` : ""}
       </div>
       <table class="current-summary-table">
         <colgroup><col><col><col><col><col></colgroup>
@@ -1637,31 +1651,17 @@ function renderCurrent() {
         ${record.sample.roastLevel ? ` · 烘焙：${escapeHtml(record.sample.roastLevel)}` : ""}
       </p>
       ${record.notes ? `<p class="note">备注：${escapeHtml(record.notes)}</p>` : ""}
-    </div>
-    <div class="panel">
-      <div class="chart-toolbar">
-        <h2>粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span></h2>
-        <select id="currentChartUnit" aria-label="当前图表单位">
-          <option value="g">重量 g</option>
-          <option value="pct">占比 %</option>
-        </select>
-      </div>
-      <div class="canvas-scroll"><canvas id="canvasBar" aria-label="当前记录粒径分布柱状图"></canvas></div>
     </div>`;
+}
 
-  container.querySelectorAll("[data-current-action]").forEach((button) => {
+function bindRecordSummaryActions(container, record) {
+  container.querySelectorAll("[data-record-summary-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      const action = button.dataset.currentAction;
-      if (action === "submit") openSubmitModal();
+      const action = button.dataset.recordSummaryAction;
       if (action === "export") exportSingleRecord(record);
       if (action === "print") window.print();
-      if (action === "import") importCommunityRecord(record.id);
-      if (action === "edit-community") editOwnedCommunityRecord(record.id);
-      if (action === "delete-community") requestDeleteCommunityRecord(record.id);
     });
   });
-  $("currentChartUnit").addEventListener("change", renderCurrentChart);
-  renderCurrentChart();
 }
 
 function metricCard(label, value) {
@@ -2106,7 +2106,8 @@ function renderRecordDetail() {
 
   const record = selectedLocalRecords[0] || getSelectedRecord();
   if (!record) {
-    $("singleRecordMeta").innerHTML = "";
+    $("singleRecordSummary").innerHTML = "";
+    $("singleRecordChartTitle").textContent = "粉径分布柱状图";
     $("singleRecordNote").textContent = "暂无可查看的记录。请先完成称测，或从历史记录选择一条记录。";
     const { ctx, width, height } = setupCanvas($("canvasRecordDetail"));
     drawEmptyCanvas(ctx, width, height, "暂无记录");
@@ -2114,12 +2115,11 @@ function renderRecordDetail() {
   }
   state.selectedRecordId = record.id;
   state.selectedRecordSource = state.store.records.some((item) => item.id === record.id) ? "local" : "community";
-  $("singleRecordMeta").innerHTML = `
-    <span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></span>
-    <span>刻度 ${escapeHtml(record.grinder.setting)}</span>
-    <span>${escapeHtml(formatDateTime(record.createdAt))}</span>
-    ${qualityChip(record.metrics.quality)}`;
-  $("singleRecordNote").textContent = `${Core.getRecordSieves(record).length} 个粒径分段 · 回收总重 ${formatNumber(record.totalG, 2)} g`;
+  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地历史记录";
+  $("singleRecordSummary").innerHTML = renderRecordSummaryPanel(record, sourceLabel, { actions: true });
+  bindRecordSummaryActions($("singleRecordSummary"), record);
+  $("singleRecordChartTitle").innerHTML = `粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span>`;
+  $("singleRecordNote").textContent = "以上信息为该次称测保存时的完整记录；切换纵轴不会修改原始数据。";
   drawBarChart($("canvasRecordDetail"), record, $("recordDetailUnit").value);
 }
 

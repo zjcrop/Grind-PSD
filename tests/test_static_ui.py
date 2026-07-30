@@ -173,6 +173,26 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('drawBarChart($("canvasRecordDetail")', script)
         self.assertIn('switchTab("array3d")', script)
 
+    def test_single_history_detail_reuses_complete_current_record_summary(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        self.assertIn('id="singleRecordSummary"', html)
+        self.assertIn("function renderRecordSummaryPanel(", script)
+        self.assertIn(
+            'renderRecordSummaryPanel(record, sourceLabel, { actions: true })',
+            script,
+        )
+        detail_block = script.split("function renderRecordDetail()", 1)[1].split(
+            "function renderMultiCompare", 1
+        )[0]
+        for expected in (
+            '$("singleRecordSummary").innerHTML = renderRecordSummaryPanel',
+            "本地历史记录",
+            "完整记录",
+            'drawBarChart($("canvasRecordDetail")',
+        ):
+            self.assertIn(expected, detail_block)
+
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         app = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
