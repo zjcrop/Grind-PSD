@@ -35,12 +35,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v13_network_first_shell(self):
+    def test_service_worker_uses_v132_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.3.1", service_worker)
+        self.assertIn("grind-psd-shell-v1.3.2", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -222,6 +222,43 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("measurement_fractions(", cloud)
         self.assertIn(".record-cloud-dot", styles)
 
+    def test_mobile_export_and_complete_csv_are_supported(self):
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        workflow = (
+            ROOT / ".github" / "workflows" / "pages.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("async function shareExportFile(", script)
+        self.assertIn("navigator.canShare({ files: [file] })", script)
+        self.assertIn("window.showSaveFilePicker", script)
+        self.assertIn("EXPORT_URL_LIFETIME_MS", script)
+        self.assertNotIn("setTimeout(() => URL.revokeObjectURL(url), 0)", script)
+        self.assertIn("function exportFractionKeys(records)", script)
+        self.assertIn("Core.getRecordSieves(record)", script)
+        self.assertIn("sieve_profile_id", script)
+        self.assertIn("node tests/test_mobile_io.js", workflow)
+
+    def test_mobile_cloud_upload_recovery_is_supported(self):
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        cloud = (ROOT / "assets" / "supabase-sync-v7.2.2.js").read_text(
+            encoding="utf-8"
+        )
+        legacy_cloud = (ROOT / "assets" / "supabase-sync.js").read_text(
+            encoding="utf-8"
+        )
+        workflow = (
+            ROOT / ".github" / "workflows" / "pages.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function createUuidV4()", script)
+        self.assertIn("globalThis.crypto?.getRandomValues", script)
+        self.assertIn("const failures = [];", script)
+        self.assertIn("uploaded += 1;", script)
+        self.assertIn("REQUEST_TIMEOUT_MS = 20_000", cloud)
+        self.assertIn("result.response.status === 401", cloud)
+        self.assertIn("const refreshed = await refresh();", cloud)
+        self.assertIn('cache: "no-store"', cloud)
+        self.assertEqual(cloud, legacy_cloud)
+        self.assertIn("node tests/test_cloud_sync.js", workflow)
+
     def test_manual_cloud_backup_includes_legacy_local_owners(self):
         script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         upload_block = script.split(
@@ -248,21 +285,21 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
         settings_block = html[html.index('id="settingsModal"'):]
-        self.assertIn("版本：1.3.1", settings_block)
+        self.assertIn("版本：1.3.2", settings_block)
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.3.1"', manifest)
-        self.assertIn('name="application-version" content="1.3.1"', html)
+        self.assertIn('"version": "1.3.2"', manifest)
+        self.assertIn('name="application-version" content="1.3.2"', html)
         for asset in (
-            "./manifest.webmanifest?v=1.3.1",
-            "./assets/styles-v5.css?v=1.3.1",
-            "./assets/psd-core.js?v=1.3.1",
-            "./assets/supabase-sync-v7.2.2.js?v=1.3.1",
-            "./assets/app-v7.js?v=1.3.1",
+            "./manifest.webmanifest?v=1.3.2",
+            "./assets/styles-v5.css?v=1.3.2",
+            "./assets/psd-core.js?v=1.3.2",
+            "./assets/supabase-sync-v7.2.2.js?v=1.3.2",
+            "./assets/app-v7.js?v=1.3.2",
         ):
             self.assertIn(asset, html)
-        self.assertIn('const APP_VERSION = "1.3.1"', script)
+        self.assertIn('const APP_VERSION = "1.3.2"', script)
 
     def test_v12_measurement_home_and_adaptive_record_detail(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -313,7 +350,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.3.1', worker)
+        self.assertIn('grind-psd-shell-v1.3.2', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
