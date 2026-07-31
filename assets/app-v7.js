@@ -1,10 +1,10 @@
 "use strict";
 
-// Grind-PSD 1.3.2 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.4.0 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.3.2";
+const APP_VERSION = "1.4.0";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
