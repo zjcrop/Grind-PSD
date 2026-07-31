@@ -40,7 +40,7 @@ class StaticUiTests(unittest.TestCase):
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.3.0", service_worker)
+        self.assertIn("grind-psd-shell-v1.3.1", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -139,6 +139,23 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("doseG: null", same_block)
         self.assertIn("doseG: null", clone_block)
 
+    def test_recovered_total_uses_the_active_sieve_profile(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        step3 = html[html.index('id="wizardStep3"'):html.index('id="settingsModal"')]
+        reader = script.split("function readWeightInputs()", 1)[1].split(
+            "function updateWeightSummary", 1
+        )[0]
+
+        self.assertIn("<span>回收总质量</span>", step3)
+        self.assertNotIn("全部筛上 + 筛下合计", step3)
+        self.assertIn(
+            "const sieves = state.wizard?.sieveProfile?.bins || Core.SIEVES;",
+            reader,
+        )
+        self.assertIn("return Core.normalizeWeights(weights, sieves);", reader)
+        self.assertNotIn("return Core.normalizeWeights(weights);", reader)
+
     def test_grind_turns_is_adjacent_optional_and_persisted(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
@@ -231,21 +248,21 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
         settings_block = html[html.index('id="settingsModal"'):]
-        self.assertIn("版本：1.3", settings_block)
+        self.assertIn("版本：1.3.1", settings_block)
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.3.0"', manifest)
-        self.assertIn('name="application-version" content="1.3.0"', html)
+        self.assertIn('"version": "1.3.1"', manifest)
+        self.assertIn('name="application-version" content="1.3.1"', html)
         for asset in (
-            "./manifest.webmanifest?v=1.3.0",
-            "./assets/styles-v5.css?v=1.3.0",
-            "./assets/psd-core.js?v=1.3.0",
-            "./assets/supabase-sync-v7.2.2.js?v=1.3.0",
-            "./assets/app-v7.js?v=1.3.0",
+            "./manifest.webmanifest?v=1.3.1",
+            "./assets/styles-v5.css?v=1.3.1",
+            "./assets/psd-core.js?v=1.3.1",
+            "./assets/supabase-sync-v7.2.2.js?v=1.3.1",
+            "./assets/app-v7.js?v=1.3.1",
         ):
             self.assertIn(asset, html)
-        self.assertIn('const APP_VERSION = "1.3"', script)
+        self.assertIn('const APP_VERSION = "1.3.1"', script)
 
     def test_v12_measurement_home_and_adaptive_record_detail(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -296,7 +313,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.3.0', worker)
+        self.assertIn('grind-psd-shell-v1.3.1', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")

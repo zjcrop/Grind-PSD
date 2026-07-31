@@ -46,6 +46,37 @@ assert.equal(
   100
 );
 
+const weighingProfile = Core.createSieveProfile([
+  { mesh: 18, apertureUm: 1000 },
+  { mesh: 24, apertureUm: 800 },
+  { mesh: 35, apertureUm: 500 },
+  { mesh: 60, apertureUm: 300 },
+  { mesh: 80, apertureUm: 180 }
+]);
+const weighingInput = Object.fromEntries(
+  weighingProfile.bins.map((bin, index) => [
+    bin.key,
+    [0.5050, 4.127, 2.644, 2.014, 0.467, 0.017][index]
+  ])
+);
+const normalizedWeighingInput = Core.normalizeWeights(
+  weighingInput,
+  weighingProfile.bins
+);
+assert.equal(
+  Core.round(Core.sum(Object.values(normalizedWeighingInput)), 2),
+  9.78
+);
+assert.equal(normalizedWeighingInput.mesh18_1000_retained_g, 0.51);
+assert.equal(normalizedWeighingInput.pan_lt180_g, 0.02);
+const weighingQuality = Core.calculateQuality(9.987, 9.78, {
+  durationSec: 60,
+  sieveDevice: "Grind-PSD 五筛六分段筛具"
+});
+assert.equal(weighingQuality.recoveryPct, 97.93);
+assert.equal(weighingQuality.massBalanceErrorPct, 2.07);
+assert.equal(weighingQuality.grade, "B");
+
 const validation = Core.validatePublicRecord(record);
 assert.deepEqual(validation.errors, []);
 assert.equal(validation.record.grinder.settingTurns, 2.25);

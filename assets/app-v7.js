@@ -1,10 +1,10 @@
 "use strict";
 
-// Grind-PSD 1.3 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.3.1 application shell and Supabase-aware interaction state machine.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.3";
+const APP_VERSION = "1.3.1";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -1445,7 +1445,8 @@ function readWeightInputs() {
   document.querySelectorAll("#weighRows input").forEach((input) => {
     weights[input.dataset.weight] = Core.toNumber(input.value);
   });
-  return Core.normalizeWeights(weights);
+  const sieves = state.wizard?.sieveProfile?.bins || Core.SIEVES;
+  return Core.normalizeWeights(weights, sieves);
 }
 
 function updateWeightSummary() {
@@ -1669,7 +1670,7 @@ function renderRecordSummaryPanel(record, sourceLabel, { actions = false } = {})
       </table>
       <div class="metrics-grid">
         ${metricCard("豆子初始质量", `${formatNumber(record.sample.doseG, 2)} g`)}
-        ${metricCard("分段回收", `${formatNumber(record.totalG, 2)} g`)}
+        ${metricCard("回收总质量", `${formatNumber(record.totalG, 2)} g`)}
         ${metricCard("质量回收率", quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`)}
         ${metricCard("≥1000 μm", `${formatNumber(record.metrics.coarsePct, 2)}%`)}
         ${metricCard("500–1000 μm", `${formatNumber(record.metrics.bodyPct, 2)}%`)}
@@ -1800,7 +1801,7 @@ function recordTable(records, options = {}) {
           <div><span>品牌 / 型号</span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></div>
           <div><span>刻度</span><strong>${escapeHtml(record.grinder.setting)}</strong></div>
           <div><span>研磨圈数</span><strong>${record.grinder.settingTurns === null || record.grinder.settingTurns === undefined ? "—" : formatNumber(record.grinder.settingTurns, 2)}</strong></div>
-          <div><span>回收总重</span><strong>${formatNumber(record.totalG, 2)} g</strong></div>
+          <div><span>回收总质量</span><strong>${formatNumber(record.totalG, 2)} g</strong></div>
           <div><span>极细粉</span><strong>${formatNumber(record.metrics.finesPct, 2)}%</strong></div>
           <div><span>可靠性</span>${qualityChip(record.metrics.quality)}</div>
           <div><span>样品</span><strong>${record.sample.bean ? escapeHtml(record.sample.bean) : "—"}</strong></div>
@@ -1818,7 +1819,7 @@ function recordTable(records, options = {}) {
         <tr>
           ${options.community ? '<th class="select-cell"><input type="checkbox" data-select-all aria-label="全选筛选结果"></th>' : ""}
           ${options.selectable ? '<th class="select-cell">对比</th>' : ""}
-          <th>用户</th><th>磨豆机</th><th>刻度</th><th class="num">回收总重</th>
+          <th>用户</th><th>磨豆机</th><th>刻度</th><th class="num">回收总质量</th>
           <th class="num">极细粉</th><th>等级</th><th>样品</th><th>时间</th><th></th>
         </tr>
       </thead>
@@ -1836,7 +1837,7 @@ function recordTable(records, options = {}) {
             <td data-label="用户">${escapeHtml(record.user.id)}</td>
             <td data-label="设备"><span class="dot" style="background:${Core.normalizeHexColor(record.grinder.color)}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
             <td data-label="刻度">${escapeHtml(record.grinder.setting)}</td>
-            <td data-label="回收总重" class="num">${formatNumber(record.totalG, 2)} g</td>
+            <td data-label="回收总质量" class="num">${formatNumber(record.totalG, 2)} g</td>
             <td data-label="极细粉" class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
             <td data-label="等级">${qualityChip(record.metrics.quality)}</td>
             <td data-label="样品" class="wrap-cell">${record.sample.bean ? `<span class="truncate">${escapeHtml(record.sample.bean)}</span>` : "—"}</td>
