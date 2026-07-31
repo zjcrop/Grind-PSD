@@ -465,3 +465,494 @@
     setTimeout(install, 0);
   }
 })(typeof window !== "undefined" ? window : null);
+
+(function installInteractiveMultiRecord3D(root) {
+  "use strict";
+
+  const DEFAULT_VIEW = Object.freeze({ yaw: 34, pitch: 30, scale: 1, panX: 0, panY: 0 });
+  const VIEW_LIMITS = Object.freeze({
+    yawMin: -75,
+    yawMax: 75,
+    pitchMin: 10,
+    pitchMax: 70,
+    scaleMin: 0.65,
+    scaleMax: 2.5,
+    panMin: -800,
+    panMax: 800
+  });
+
+  function clamp(value, minimum, maximum) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return minimum;
+    return Math.min(maximum, Math.max(minimum, numeric));
+  }
+
+  function normalizeView(input = {}) {
+    return {
+      yaw: clamp(input.yaw ?? DEFAULT_VIEW.yaw, VIEW_LIMITS.yawMin, VIEW_LIMITS.yawMax),
+      pitch: clamp(input.pitch ?? DEFAULT_VIEW.pitch, VIEW_LIMITS.pitchMin, VIEW_LIMITS.pitchMax),
+      scale: clamp(input.scale ?? DEFAULT_VIEW.scale, VIEW_LIMITS.scaleMin, VIEW_LIMITS.scaleMax),
+      panX: clamp(input.panX ?? DEFAULT_VIEW.panX, VIEW_LIMITS.panMin, VIEW_LIMITS.panMax),
+      panY: clamp(input.panY ?? DEFAULT_VIEW.panY, VIEW_LIMITS.panMin, VIEW_LIMITS.panMax)
+    };
+  }
+
+  function depthVector(viewInput, rowCount, depthTotal) {
+    const view = normalizeView(viewInput);
+    const step = Math.max(0, Number(depthTotal) || 0) / Math.max(1, Number(rowCount) || 1);
+    const yawRadians = view.yaw * Math.PI / 180;
+    const pitchRadians = view.pitch * Math.PI / 180;
+    return {
+      x: step * Math.sin(yawRadians),
+      y: step * Math.sin(pitchRadians),
+      step
+    };
+  }
+
+  function pinchView(startViewInput, startGesture = {}, currentGesture = {}) {
+    const startView = normalizeView(startViewInput);
+    const startDistance = Math.max(1, Number(startGesture.distance) || 1);
+    const currentDistance = Math.max(1, Number(currentGesture.distance) || startDistance);
+    const startAngle = Number(startGesture.angle) || 0;
+    const currentAngle = Number(currentGesture.angle) || startAngle;
+    return normalizeView({
+      yaw: startView.yaw + (currentAngle - startAngle) * 180 / Math.PI,
+      pitch: startView.pitch,
+      scale: startView.scale * currentDistance / startDistance,
+      panX: startView.panX + (Number(currentGesture.centerX) || 0) - (Number(startGesture.centerX) || 0),
+      panY: startView.panY + (Number(currentGesture.centerY) || 0) - (Number(startGesture.centerY) || 0)
+    });
+  }
+
+  const api = Object.freeze({
+    version: "1.4.1",
+    DEFAULT_VIEW,
+    VIEW_LIMITS,
+    clamp,
+    normalizeView,
+    depthVector,
+    pinchView
+  });
+  root.GrindPSDInteractive3D = api;
+
+  if (typeof document === "undefined") return;
+
+  const canvasStates = new WeakMap();
+  let installed = false;
+
+  function injectStyles() {
+    if (document.getElementById("interactive3dStyles")) return;
+    const style = document.createElement("style");
+    style.id = "interactive3dStyles";
+    style.textContent = `
+      .interactive-3d-toolbar{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr)) auto;align-items:end;gap:10px;margin:0 0 10px;padding:10px;border:1px solid #3a2f26;border-radius:11px;background:#15110e}
+      .interactive-3d-toolbar[hidden]{display:none}
+      .interactive-3d-control{display:grid;gap:5px;min-width:0}
+      .interactive-3d-control span{display:flex;justify-content:space-between;gap:8px;color:#b9aa96;font-size:11px}
+      .interactive-3d-control output{color:#efe6da;font-variant-numeric:tabular-nums}
+      .interactive-3d-control input[type=range]{width:100%;margin:0;accent-color:#d98e32}
+      .interactive-3d-reset{height:34px;white-space:nowrap}
+      #canvasCmpMulti3d{cursor:grab;touch-action:none;overscroll-behavior:contain;outline:none}
+      #canvasCmpMulti3d.is-manipulating{cursor:grabbing}
+      #canvasCmpMulti3d:focus-visible{box-shadow:0 0 0 2px rgba(217,142,50,.65)}
+      .interactive-3d-hint{grid-column:1/-1;color:#8f806e;font-size:11px;line-height:1.5}
+      @media(max-width:700px){
+        .interactive-3d-toolbar{grid-template-columns:1fr 1fr}
+        .interactive-3d-control.zoom{grid-column:1/-1}
+        .interactive-3d-reset{width:100%}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function stateFor(canvas) {
+    let value = canvasStates.get(canvas);
+    if (value) return value;
+    value = {
+      view: normalizeView(DEFAULT_VIEW),
+      records: [],
+      unit: "pct",
+      noteElement: null,
+      pointers: new Map(),
+      gesture: null,
+      mouseMode: "rotate",
+      redrawFrame: 0,
+      bound: false,
+      toolbar: null
+    };
+    canvasStates.set(canvas, value);
+    return value;
+  }
+
+  function gestureSnapshot(points) {
+    const list = [...points.values()].slice(0, 2);
+    if (list.length < 2) return null;
+    const [a, b] = list;
+    return {
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      centerX: (a.x + b.x) / 2,
+      centerY: (a.y + b.y) / 2,
+      angle: Math.atan2(b.y - a.y, b.x - a.x)
+    };
+  }
+
+  function updateToolbar(canvas) {
+    const state = stateFor(canvas);
+    const toolbar = state.toolbar;
+    if (!toolbar) return;
+    const view = state.view;
+    const yaw = toolbar.querySelector('[data-view="yaw"]');
+    const pitch = toolbar.querySelector('[data-view="pitch"]');
+    const scale = toolbar.querySelector('[data-view="scale"]');
+    const yawOutput = toolbar.querySelector('[data-output="yaw"]');
+    const pitchOutput = toolbar.querySelector('[data-output="pitch"]');
+    const scaleOutput = toolbar.querySelector('[data-output="scale"]');
+    if (yaw) yaw.value = String(Math.round(view.yaw));
+    if (pitch) pitch.value = String(Math.round(view.pitch));
+    if (scale) scale.value = String(Math.round(view.scale * 100));
+    if (yawOutput) yawOutput.textContent = `${Math.round(view.yaw)}°`;
+    if (pitchOutput) pitchOutput.textContent = `${Math.round(view.pitch)}°`;
+    if (scaleOutput) scaleOutput.textContent = `${Math.round(view.scale * 100)}%`;
+  }
+
+  function ensureToolbar(canvas) {
+    const state = stateFor(canvas);
+    if (state.toolbar?.isConnected) return state.toolbar;
+    const scroll = canvas.closest(".canvas-scroll");
+    if (!scroll?.parentElement) return null;
+    let toolbar = document.getElementById("interactive3dToolbar");
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.id = "interactive3dToolbar";
+      toolbar.className = "interactive-3d-toolbar";
+      toolbar.innerHTML = `
+        <label class="interactive-3d-control">
+          <span>水平旋转 <output data-output="yaw">34°</output></span>
+          <input data-view="yaw" type="range" min="-75" max="75" step="1" value="34" aria-label="3D 图水平旋转角度">
+        </label>
+        <label class="interactive-3d-control">
+          <span>俯视角 <output data-output="pitch">30°</output></span>
+          <input data-view="pitch" type="range" min="10" max="70" step="1" value="30" aria-label="3D 图俯视角度">
+        </label>
+        <label class="interactive-3d-control zoom">
+          <span>缩放 <output data-output="scale">100%</output></span>
+          <input data-view="scale" type="range" min="65" max="250" step="1" value="100" aria-label="3D 图缩放倍率">
+        </label>
+        <button class="ghost small interactive-3d-reset" type="button" data-view-reset>复位视角</button>
+        <div class="interactive-3d-hint">单指或鼠标拖动旋转；双指捏合缩放、双指同向移动平移、双指扭转改变水平角度。桌面端可用滚轮缩放，按 Shift 拖动平移。</div>`;
+      scroll.parentElement.insertBefore(toolbar, scroll);
+    }
+    state.toolbar = toolbar;
+    toolbar.querySelectorAll("[data-view]").forEach((input) => {
+      if (input.dataset.bound === "true") return;
+      input.dataset.bound = "true";
+      input.addEventListener("input", () => {
+        const current = stateFor(canvas);
+        const key = input.dataset.view;
+        const raw = Number(input.value);
+        current.view = normalizeView({
+          ...current.view,
+          [key]: key === "scale" ? raw / 100 : raw
+        });
+        updateToolbar(canvas);
+        requestRedraw(canvas);
+      });
+    });
+    const reset = toolbar.querySelector("[data-view-reset]");
+    if (reset && reset.dataset.bound !== "true") {
+      reset.dataset.bound = "true";
+      reset.addEventListener("click", () => {
+        const current = stateFor(canvas);
+        current.view = normalizeView(DEFAULT_VIEW);
+        updateToolbar(canvas);
+        requestRedraw(canvas);
+      });
+    }
+    updateToolbar(canvas);
+    return toolbar;
+  }
+
+  function requestRedraw(canvas) {
+    const state = stateFor(canvas);
+    if (state.redrawFrame) return;
+    state.redrawFrame = requestAnimationFrame(() => {
+      state.redrawFrame = 0;
+      interactiveDrawMultiRecord3D(canvas, state.records, state.unit, state.noteElement);
+    });
+  }
+
+  function setView(canvas, patch) {
+    const state = stateFor(canvas);
+    state.view = normalizeView({ ...state.view, ...patch });
+    updateToolbar(canvas);
+    requestRedraw(canvas);
+  }
+
+  function bindCanvas(canvas) {
+    const state = stateFor(canvas);
+    if (state.bound) return;
+    state.bound = true;
+    canvas.tabIndex = 0;
+
+    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      canvas.focus({ preventScroll: true });
+      canvas.setPointerCapture?.(event.pointerId);
+      state.pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY
+      });
+      state.mouseMode = event.shiftKey ? "pan" : "rotate";
+      if (state.pointers.size >= 2) {
+        state.gesture = {
+          startView: { ...state.view },
+          start: gestureSnapshot(state.pointers)
+        };
+      } else {
+        state.gesture = null;
+      }
+      canvas.classList.add("is-manipulating");
+      event.preventDefault();
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const point = state.pointers.get(event.pointerId);
+      if (!point) return;
+      const previousX = point.x;
+      const previousY = point.y;
+      point.lastX = previousX;
+      point.lastY = previousY;
+      point.x = event.clientX;
+      point.y = event.clientY;
+
+      if (state.pointers.size >= 2) {
+        if (!state.gesture?.start) {
+          state.gesture = { startView: { ...state.view }, start: gestureSnapshot(state.pointers) };
+        }
+        const current = gestureSnapshot(state.pointers);
+        if (current && state.gesture.start) {
+          state.view = pinchView(state.gesture.startView, state.gesture.start, current);
+        }
+      } else {
+        const dx = point.x - previousX;
+        const dy = point.y - previousY;
+        if (state.mouseMode === "pan") {
+          state.view = normalizeView({
+            ...state.view,
+            panX: state.view.panX + dx,
+            panY: state.view.panY + dy
+          });
+        } else {
+          state.view = normalizeView({
+            ...state.view,
+            yaw: state.view.yaw + dx * 0.32,
+            pitch: state.view.pitch - dy * 0.24
+          });
+        }
+      }
+      updateToolbar(canvas);
+      requestRedraw(canvas);
+      event.preventDefault();
+    }, { passive: false });
+
+    function finishPointer(event) {
+      if (!state.pointers.has(event.pointerId)) return;
+      state.pointers.delete(event.pointerId);
+      canvas.releasePointerCapture?.(event.pointerId);
+      if (state.pointers.size === 1) {
+        const remaining = [...state.pointers.values()][0];
+        remaining.lastX = remaining.x;
+        remaining.lastY = remaining.y;
+        state.gesture = null;
+      } else if (state.pointers.size === 0) {
+        state.gesture = null;
+        canvas.classList.remove("is-manipulating");
+      }
+      event.preventDefault();
+    }
+
+    canvas.addEventListener("pointerup", finishPointer);
+    canvas.addEventListener("pointercancel", finishPointer);
+    canvas.addEventListener("lostpointercapture", (event) => {
+      state.pointers.delete(event.pointerId);
+      if (!state.pointers.size) canvas.classList.remove("is-manipulating");
+    });
+
+    canvas.addEventListener("wheel", (event) => {
+      const factor = Math.exp(-event.deltaY * 0.0014);
+      setView(canvas, { scale: state.view.scale * factor });
+      event.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("keydown", (event) => {
+      const key = event.key;
+      if (key === "ArrowLeft") setView(canvas, { yaw: state.view.yaw - 4 });
+      else if (key === "ArrowRight") setView(canvas, { yaw: state.view.yaw + 4 });
+      else if (key === "ArrowUp") setView(canvas, { pitch: state.view.pitch + 4 });
+      else if (key === "ArrowDown") setView(canvas, { pitch: state.view.pitch - 4 });
+      else if (["+", "="].includes(key)) setView(canvas, { scale: state.view.scale * 1.1 });
+      else if (["-", "_"].includes(key)) setView(canvas, { scale: state.view.scale / 1.1 });
+      else if (["0", "Home"].includes(key)) {
+        state.view = normalizeView(DEFAULT_VIEW);
+        updateToolbar(canvas);
+        requestRedraw(canvas);
+      } else return;
+      event.preventDefault();
+    });
+  }
+
+  function drawPrism(ctx, x, baseY, width, height, faceX, faceY, color) {
+    const topY = baseY - height;
+    const depthY = -faceY;
+    ctx.fillStyle = shadeColor(color, 1.12);
+    ctx.beginPath();
+    ctx.moveTo(x, topY);
+    ctx.lineTo(x + faceX, topY + depthY);
+    ctx.lineTo(x + width + faceX, topY + depthY);
+    ctx.lineTo(x + width, topY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = shadeColor(color, 0.68);
+    ctx.beginPath();
+    if (faceX >= 0) {
+      ctx.moveTo(x + width, topY);
+      ctx.lineTo(x + width + faceX, topY + depthY);
+      ctx.lineTo(x + width + faceX, baseY + depthY);
+      ctx.lineTo(x + width, baseY);
+    } else {
+      ctx.moveTo(x, topY);
+      ctx.lineTo(x + faceX, topY + depthY);
+      ctx.lineTo(x + faceX, baseY + depthY);
+      ctx.lineTo(x, baseY);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    ctx.fillRect(x, topY, width, height);
+  }
+
+  function interactiveDrawMultiRecord3D(canvas, records, unit = "pct", noteElement = null) {
+    if (!canvas) return;
+    const state = stateFor(canvas);
+    state.records = (records || []).slice(0, MAX_COMPARE_RECORDS);
+    state.unit = unit;
+    state.noteElement = noteElement;
+    bindCanvas(canvas);
+    const toolbar = ensureToolbar(canvas);
+    if (toolbar) toolbar.hidden = state.records.length < 2;
+
+    const { ctx, width, height } = setupCanvas(canvas);
+    const rows = state.records;
+    if (rows.length < 2) {
+      drawEmptyCanvas(ctx, width, height, "请在历史记录中选择 2–10 条测次");
+      if (noteElement) noteElement.textContent = "筛选记录后勾选需要对比的测次，再点击“对比所选”。";
+      return;
+    }
+
+    const aligned = GrindPSDPolicyCore.alignPercentageDistributions(rows, Core.getRecordSieves);
+    const bins = aligned.bins;
+    const series = aligned.series;
+    const maxValue = Math.max(...series.flatMap((item) => item.values), 1) * 1.12;
+    const compact = width < 520;
+    const view = state.view;
+    const pad = { left: compact ? 42 : 60, right: compact ? 46 : 76, top: 28, bottom: compact ? 52 : 66 };
+    const depthTotal = Math.min(width * 0.28, height * 0.34);
+    const depth = depthVector(view, series.length, depthTotal);
+    const depthSpanX = Math.abs(depth.x) * Math.max(0, series.length - 1);
+    const depthSpanY = Math.abs(depth.y) * Math.max(0, series.length - 1);
+    const plotW = Math.max(80, width - pad.left - pad.right - depthSpanX);
+    const plotH = Math.max(70, height - pad.top - pad.bottom - depthSpanY);
+    const startX = pad.left + (depth.x < 0 ? depthSpanX : 0);
+    const baseY = height - pad.bottom;
+    const cellW = plotW / Math.max(1, bins.length);
+    const barW = Math.max(3, Math.min(42, cellW * 0.48));
+    const scaleY = plotH / maxValue;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.translate(centerX + view.panX, centerY + view.panY);
+    ctx.scale(view.scale, view.scale);
+    ctx.translate(-centerX, -centerY);
+
+    ctx.strokeStyle = "#3a2f26";
+    ctx.fillStyle = "#a89880";
+    ctx.font = `${compact ? 8 : 10}px sans-serif`;
+    ctx.textAlign = "right";
+    for (let tick = 0; tick <= 4; tick += 1) {
+      const value = maxValue * tick / 4;
+      const y = baseY - value * scaleY;
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(startX + plotW, y);
+      ctx.stroke();
+      ctx.fillText(`${formatPlainNumber(value, 0)}%`, startX - 6, y + 3);
+    }
+
+    for (let rowIndex = series.length - 1; rowIndex >= 0; rowIndex -= 1) {
+      const values = series[rowIndex].values;
+      const offsetX = rowIndex * depth.x;
+      const offsetY = rowIndex * depth.y;
+      const color = paletteForIndex(rowIndex);
+      values.forEach((value, index) => {
+        if (value <= 0) return;
+        const barH = value * scaleY;
+        const x = startX + cellW * (index + 0.5) - barW / 2 + offsetX;
+        const y = baseY - offsetY;
+        const faceX = depth.x * 0.42;
+        const faceY = depth.y * 0.42;
+        drawPrism(ctx, x, y, barW, barH, faceX, faceY, color);
+      });
+      ctx.fillStyle = "#efe6da";
+      ctx.font = `${compact ? 7 : 9}px sans-serif`;
+      ctx.textAlign = depth.x >= 0 ? "left" : "right";
+      const labelX = depth.x >= 0 ? startX + plotW + offsetX + 5 : startX + offsetX - 5;
+      ctx.fillText(`Z${rowIndex + 1}`, labelX, baseY - offsetY + 2);
+    }
+
+    ctx.fillStyle = "#a89880";
+    ctx.font = `${compact ? 7 : 9}px sans-serif`;
+    ctx.textAlign = "center";
+    bins.forEach((bin, index) => {
+      const label = bin.shortLabel.length > 10 ? `${bin.shortLabel.slice(0, 9)}…` : bin.shortLabel;
+      ctx.fillText(label, startX + cellW * (index + 0.5), baseY + 18);
+    });
+    ctx.restore();
+
+    if (noteElement) {
+      noteElement.textContent = `${series.length} 条测次按实际粒径区间对齐并换算为百分比，缺失区间按 0% 补全。单指旋转，双指缩放/平移/扭转；当前水平角 ${Math.round(view.yaw)}°、俯视角 ${Math.round(view.pitch)}°、缩放 ${Math.round(view.scale * 100)}%。`;
+    }
+  }
+
+  function install() {
+    if (installed) return;
+    if (typeof drawMultiRecord3D !== "function" || typeof setupCanvas !== "function") {
+      setTimeout(install, 30);
+      return;
+    }
+    installed = true;
+    injectStyles();
+    drawMultiRecord3D = interactiveDrawMultiRecord3D;
+    const canvas = document.getElementById("canvasCmpMulti3d");
+    if (canvas) {
+      bindCanvas(canvas);
+      ensureToolbar(canvas);
+    }
+    if (typeof state !== "undefined" && state.selectedHistoryIds?.size > 1 && state.activeTab === "array3d") {
+      renderMultiCompare();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => setTimeout(install, 20), { once: true });
+  } else {
+    setTimeout(install, 20);
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this);
