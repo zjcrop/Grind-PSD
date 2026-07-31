@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger after workflow registration.
 ROOT = Path(__file__).resolve().parents[1]
 
 
