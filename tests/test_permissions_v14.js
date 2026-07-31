@@ -50,6 +50,23 @@ assert.equal(aligned.series[1].values.reduce((sum, value) => sum + value, 0), 10
 assert.ok(aligned.series[0].values.includes(0));
 assert.ok(aligned.series[1].values.includes(0));
 
+assert.deepEqual(
+  Policy.orderSelectedIds(["a", "b", "c", "b"], ["c", "a", "missing"]),
+  ["c", "a", "b"]
+);
+assert.deepEqual(Policy.orderSelectedIds(["a", "b"], []), ["a", "b"]);
+
+const policySource = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "record-policy-core-v1.4.js"),
+  "utf8"
+);
+assert.match(policySource, /installComparisonOrdering/);
+assert.match(policySource, /data-compare-order-id/);
+assert.match(policySource, /dragstart/);
+assert.match(policySource, /pointerdown/);
+assert.match(policySource, /state\.selectedHistoryIds = new Set/);
+assert.match(policySource, /下方 3D 图按此顺序同步重绘/);
+
 const permissions = fs.readFileSync(path.join(__dirname, "..", "assets", "permissions-v1.4.js"), "utf8");
 assert.match(permissions, /zj_crop@163\.com/);
 assert.match(permissions, /Cloud\.isSignedIn = \(\) => false/);
@@ -69,4 +86,4 @@ assert.match(migration, /admin_delete_grind_psd_record/);
 assert.match(migration, /replace_measurement_fractions/);
 assert.match(migration, /zj_crop@163\.com/);
 
-console.log("Grind-PSD v1.4 permission and alignment tests passed.");
+console.log("Grind-PSD v1.4 permission, alignment, and comparison ordering tests passed.");
