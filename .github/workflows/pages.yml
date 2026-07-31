@@ -25,9 +25,12 @@ jobs:
           node --check assets/psd-core.js
           node --check assets/supabase-sync-v7.2.2.js
           node --check assets/app-v7.js
+          node --check assets/record-policy-core-v1.4.js
+          node --check assets/permissions-v1.4.js
           node tests/test_core.js
           node tests/test_mobile_io.js
           node tests/test_cloud_sync.js
+          node tests/test_permissions_v14.js
           python3 -m json.tool data/standard.json > /dev/null
           python3 -m json.tool data/record.schema.json > /dev/null
           python3 -m json.tool data/database.json > /dev/null
