@@ -1,6 +1,5 @@
 from pathlib import Path
 
-# Triggered after the workflow file exists on the feature branch.
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -12,73 +11,58 @@ def write(path: str, content: str) -> None:
     (ROOT / path).write_text(content, encoding="utf-8")
 
 
-def replace_once(text: str, old: str, new: str, label: str) -> str:
+def replace_if_present(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
-    if count != 1:
-        raise RuntimeError(f"{label}: expected exactly one match, found {count}")
-    return text.replace(old, new, 1)
+    if count > 1:
+        raise RuntimeError(f"{label}: expected no more than one match, found {count}")
+    return text.replace(old, new, 1) if count == 1 else text
 
 
 index = read("index.html").replace("1.3.2", "1.4.0")
-index = replace_once(
-    index,
-    '  <script src="./assets/app-v7.js?v=1.4.0" defer></script>',
-    '  <script src="./assets/app-v7.js?v=1.4.0" defer></script>\n'
-    '  <script src="./assets/record-policy-core-v1.4.js?v=1.4.0" defer></script>\n'
-    '  <script src="./assets/permissions-v1.4.js?v=1.4.0" defer></script>',
-    "index script insertion",
-)
+if "record-policy-core-v1.4.js" not in index:
+    index = replace_if_present(
+        index,
+        '  <script src="./assets/app-v7.js?v=1.4.0" defer></script>',
+        '  <script src="./assets/app-v7.js?v=1.4.0" defer></script>\n'
+        '  <script src="./assets/record-policy-core-v1.4.js?v=1.4.0" defer></script>\n'
+        '  <script src="./assets/permissions-v1.4.js?v=1.4.0" defer></script>',
+        "index script insertion",
+    )
 write("index.html", index)
 
 app = read("assets/app-v7.js")
-app = replace_once(
+app = replace_if_present(
     app,
     "// Grind-PSD 1.3.2 application shell and Supabase-aware interaction state machine.",
     "// Grind-PSD 1.4.0 application shell; permission overrides load from permissions-v1.4.js.",
     "app version comment",
 )
-app = replace_once(app, 'const APP_VERSION = "1.3.2";', 'const APP_VERSION = "1.4.0";', "app version")
+app = replace_if_present(app, 'const APP_VERSION = "1.3.2";', 'const APP_VERSION = "1.4.0";', "app version")
 write("assets/app-v7.js", app)
 
 worker = read("service-worker.js").replace("1.3.2", "1.4.0")
-worker = replace_once(
-    worker,
-    '  "./assets/app-v7.js",',
-    '  "./assets/app-v7.js",\n'
-    '  "./assets/record-policy-core-v1.4.js",\n'
-    '  "./assets/permissions-v1.4.js",',
-    "service worker shell entries",
-)
-worker = replace_once(
-    worker,
-    '    url.pathname.endsWith("/assets/app-v7.js") ||',
-    '    url.pathname.endsWith("/assets/app-v7.js") ||\n'
-    '    url.pathname.endsWith("/assets/record-policy-core-v1.4.js") ||\n'
-    '    url.pathname.endsWith("/assets/permissions-v1.4.js") ||',
-    "service worker network-first entries",
-)
+if '"./assets/record-policy-core-v1.4.js"' not in worker:
+    worker = replace_if_present(
+        worker,
+        '  "./assets/app-v7.js",',
+        '  "./assets/app-v7.js",\n'
+        '  "./assets/record-policy-core-v1.4.js",\n'
+        '  "./assets/permissions-v1.4.js",',
+        "service worker shell entries",
+    )
+if 'url.pathname.endsWith("/assets/record-policy-core-v1.4.js")' not in worker:
+    worker = replace_if_present(
+        worker,
+        '    url.pathname.endsWith("/assets/app-v7.js") ||',
+        '    url.pathname.endsWith("/assets/app-v7.js") ||\n'
+        '    url.pathname.endsWith("/assets/record-policy-core-v1.4.js") ||\n'
+        '    url.pathname.endsWith("/assets/permissions-v1.4.js") ||',
+        "service worker network-first entries",
+    )
 write("service-worker.js", worker)
 
 manifest = read("manifest.webmanifest").replace('"version": "1.3.2"', '"version": "1.4.0"')
 write("manifest.webmanifest", manifest)
-
-pages = read(".github/workflows/pages.yml")
-pages = replace_once(
-    pages,
-    "          node --check assets/app-v7.js\n",
-    "          node --check assets/app-v7.js\n"
-    "          node --check assets/record-policy-core-v1.4.js\n"
-    "          node --check assets/permissions-v1.4.js\n",
-    "pages syntax checks",
-)
-pages = replace_once(
-    pages,
-    "          node tests/test_cloud_sync.js\n",
-    "          node tests/test_cloud_sync.js\n"
-    "          node tests/test_permissions_v14.js\n",
-    "pages v1.4 tests",
-)
-write(".github/workflows/pages.yml", pages)
 
 static_tests = read("tests/test_static_ui.py").replace("1.3.2", "1.4.0")
 write("tests/test_static_ui.py", static_tests)
