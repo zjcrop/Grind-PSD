@@ -385,7 +385,7 @@
     if (!record.sample.sieveDevice) errors.push("公开记录必须注明筛具或筛分装置。");
     if (record.sample.durationSec <= 0) errors.push("公开记录必须填写筛分时长。");
     if (record.metrics.quality.grade === "D") {
-      errors.push("回收总重与豆子初始质量偏差超过 10%，不满足公开数据库的质量要求。");
+      errors.push("回收总质量与豆子初始质量偏差超过 10%，不满足公开数据库的质量要求。");
     } else if (record.metrics.quality.grade === "C") {
       warnings.push("质量等级为 C，数据可入库，但仅适合谨慎比较。");
     }
