@@ -82,6 +82,43 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("可继续开始下一次称测", save_block)
         self.assertNotIn("openWizard({ preferRecent: true })", save_block)
 
+    def test_weighing_step_keeps_values_and_uses_blank_initial_mass(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        step2 = html[html.index('id="wizardStep2"'):html.index('id="wizardStep3"')]
+        step3 = html[html.index('id="wizardStep3"'):html.index('id="settingsModal"')]
+        fresh = script.split("function freshWizard()", 1)[1].split(
+            "function defaultStore", 1
+        )[0]
+        step2_reader = script.split("function readWizardStep2()", 1)[1].split(
+            "function buildWeighRows", 1
+        )[0]
+        save_block = script.split("async function saveWizardRecord()", 1)[1].split(
+            "function selectNewestRecord", 1
+        )[0]
+
+        self.assertNotIn('id="doseInput"', step2)
+        self.assertIn("豆子初始质量 g", step3)
+        self.assertRegex(
+            step3,
+            r'id="doseInput"[^>]+placeholder="请输入称测前的豆子质量"',
+        )
+        self.assertNotRegex(step3, r'id="doseInput"[^>]+\bvalue=')
+        self.assertLess(step3.index('id="doseInput"'), step3.index('id="weighRows"'))
+        self.assertIn("doseG: null", fresh)
+        self.assertIn("function captureWeighingStep()", script)
+        self.assertIn(
+            'state.wizard.weightsGrams = Core.normalizeWeights(\n'
+            "    state.wizard.weightsGrams,",
+            step2_reader,
+        )
+        self.assertIn(
+            '$("wizardBack3").addEventListener("click", returnFromWeighingStep)',
+            script,
+        )
+        self.assertIn("captureWeighingStep();", save_block)
+        self.assertIn("豆子初始质量", save_block)
+
     def test_multi_record_compare_and_mobile_cards(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
@@ -205,7 +242,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.2.1', worker)
+        self.assertIn('grind-psd-shell-v1.2.2', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")

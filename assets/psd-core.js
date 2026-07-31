@@ -374,11 +374,11 @@
     if (!/^[a-z0-9][a-z0-9_-]{1,47}$/.test(record.user.id)) {
       errors.push("用户 ID 需为 2–48 位小写字母、数字、下划线或连字符。");
     }
-    if (record.sample.doseG <= 0) errors.push("公开记录必须填写研磨投粉量。");
+    if (record.sample.doseG <= 0) errors.push("公开记录必须填写豆子初始质量。");
     if (!record.sample.sieveDevice) errors.push("公开记录必须注明筛具或筛分装置。");
     if (record.sample.durationSec <= 0) errors.push("公开记录必须填写筛分时长。");
     if (record.metrics.quality.grade === "D") {
-      errors.push("回收总重与投粉量偏差超过 10%，不满足公开数据库的质量要求。");
+      errors.push("回收总重与豆子初始质量偏差超过 10%，不满足公开数据库的质量要求。");
     } else if (record.metrics.quality.grade === "C") {
       warnings.push("质量等级为 C，数据可入库，但仅适合谨慎比较。");
     }

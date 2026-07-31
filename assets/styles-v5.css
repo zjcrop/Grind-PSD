@@ -1711,6 +1711,10 @@ label.field {
   overflow: hidden;
 }
 
+.weighing-dose-field {
+  margin-bottom: 14px;
+}
+
 .weighing-head,
 .weighing-row {
   display: grid;

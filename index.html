@@ -316,10 +316,10 @@
         <h2>推荐操作流程</h2>
         <ol class="protocol-steps">
           <li><strong>准备与清洁</strong><span>清理磨豆机、筛具和接粉盘；避免上一批残粉污染。</span></li>
-          <li><strong>记录投粉</strong><span>建议 10.00 g 或 15.00 g，使用 0.01 g 分辨率电子秤。</span></li>
+          <li><strong>记录豆子初始质量</strong><span>建议使用 0.01 g 分辨率电子秤，并按实际称量结果录入。</span></li>
           <li><strong>固定方法</strong><span>保持同一筛具、相同动作或设备、相同时长；不同方法不得直接并入同一趋势线。</span></li>
           <li><strong>逐层称重</strong><span>五张筛网必须记录六份质量：每层筛上物加最后底盘筛下物。</span></li>
-          <li><strong>核对回收率</strong><span>检查六分段合计与投粉量的差异，并保留原始克重。</span></li>
+          <li><strong>核对回收率</strong><span>检查六分段合计与豆子初始质量的差异，并保留原始克重。</span></li>
           <li><strong>重复测量</strong><span>正式比较建议每个刻度至少 3 次独立重复，保留每次原始记录。</span></li>
         </ol>
         <p class="note source-note">
@@ -551,10 +551,6 @@
             <input type="number" id="dialOrderInput" step="0.001" inputmode="decimal" placeholder="如：18">
             <span class="field-help">用于 3D 阵列排序；不填则尝试从刻度文字提取数字。</span>
           </label>
-          <label class="field">
-            <span>投粉量 g <em>必填</em></span>
-            <input type="number" id="doseInput" min="1" max="200" step="0.01" inputmode="decimal" value="10.00">
-          </label>
         </div>
         <details class="advanced-options">
           <summary>高级测量条件 <span>用于保证跨记录可比性</span></summary>
@@ -621,6 +617,10 @@
           </div>
           <div class="step-progress"><span class="on"></span><span class="on"></span><span class="on"></span></div>
         </div>
+        <label class="field weighing-dose-field">
+          <span>豆子初始质量 g <em>必填</em></span>
+          <input type="number" id="doseInput" min="0.01" max="200" step="0.01" inputmode="decimal" placeholder="请输入称测前的豆子质量">
+        </label>
         <div class="weighing-table">
           <div class="weighing-head"><span>筛分档 / 孔径区间</span><span>该分段粉重 g</span></div>
           <div id="weighRows"></div>
