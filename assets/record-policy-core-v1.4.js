@@ -101,9 +101,7 @@
       const fallback = parsedRange(sieve?.range);
       let lowerUm = finiteOrNull(sieve?.apertureUm);
       let upperUm = null;
-      if (index > 0) {
-        upperUm = finiteOrNull(sieves[index - 1]?.apertureUm);
-      }
+      if (index > 0) upperUm = finiteOrNull(sieves[index - 1]?.apertureUm);
       if (lowerUm === null) lowerUm = fallback.lowerUm;
       if (upperUm === null) upperUm = fallback.upperUm;
       if (index === 0 && fallback.upperUm === null) upperUm = null;
@@ -157,6 +155,31 @@
     };
   }
 
+  function orderSelectedIds(selectedIds = [], preferredIds = []) {
+    const selected = [];
+    const selectedSet = new Set();
+    (selectedIds || []).forEach((id) => {
+      const key = String(id || "");
+      if (!key || selectedSet.has(key)) return;
+      selectedSet.add(key);
+      selected.push(key);
+    });
+    const result = [];
+    const added = new Set();
+    (preferredIds || []).forEach((id) => {
+      const key = String(id || "");
+      if (!selectedSet.has(key) || added.has(key)) return;
+      added.add(key);
+      result.push(key);
+    });
+    selected.forEach((key) => {
+      if (added.has(key)) return;
+      added.add(key);
+      result.push(key);
+    });
+    return result;
+  }
+
   return Object.freeze({
     RECORD_PREFIX,
     DAILY_SEQUENCE_CAPACITY,
@@ -166,6 +189,279 @@
     dateCode,
     createRecordId,
     recordIntervals,
-    alignPercentageDistributions
+    alignPercentageDistributions,
+    orderSelectedIds
   });
 });
+
+(function installComparisonOrdering(root) {
+  "use strict";
+  if (!root || typeof document === "undefined") return;
+
+  const Policy = root.GrindPSDPolicyCore;
+  const FALLBACK_COLORS = [
+    "#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5",
+    "#4dd0e1", "#ffd54f", "#ff8a65", "#64b5f6", "#c0ca33"
+  ];
+
+  function escapeMarkup(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[character]));
+  }
+
+  function recordDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
+    return date.toLocaleDateString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+  }
+
+  function colorForPosition(index) {
+    if (typeof paletteForIndex === "function") return paletteForIndex(index);
+    return FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+  }
+
+  function injectStyles() {
+    if (document.getElementById("compareOrderingStyles")) return;
+    const style = document.createElement("style");
+    style.id = "compareOrderingStyles";
+    style.textContent = `
+      #multiCompareLegend.multi-compare-legend{display:block;margin:0 0 14px}
+      .compare-order-panel{border:1px solid #3a2f26;border-radius:12px;background:#15110e;padding:12px}
+      .compare-order-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+      .compare-order-heading strong{font-size:14px;color:#efe6da}
+      .compare-order-heading span{font-size:12px;line-height:1.5;color:#a89880;text-align:right}
+      .compare-order-list{display:grid;gap:8px;list-style:none;margin:0;padding:0}
+      .compare-order-item{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:9px;min-height:48px;padding:7px 8px;border:1px solid #332920;border-radius:10px;background:#0d0b09;user-select:none}
+      .compare-order-item[draggable=true]{cursor:grab}
+      .compare-order-item.dragging{opacity:.5;border-color:#d98e32;box-shadow:0 0 0 2px rgba(217,142,50,.18)}
+      .compare-order-list.pointer-sorting .compare-order-item:not(.dragging){transition:transform .08s ease}
+      button.compare-drag-handle{width:34px;height:34px;min-width:34px;padding:0;border:1px solid #4a3b2e;border-radius:8px;background:#201912;color:#d9c8b2;font-size:20px;line-height:1;cursor:grab;touch-action:none}
+      button.compare-drag-handle:active{cursor:grabbing}
+      .compare-order-dot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.08)}
+      .compare-order-copy{min-width:0;display:grid;gap:2px}
+      .compare-order-copy strong{font-size:13px;color:#efe6da}
+      .compare-order-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#b9aa96}
+      .compare-order-actions{display:flex;gap:4px}
+      button.compare-order-step{width:30px;height:30px;padding:0;border:1px solid #3d3126;border-radius:7px;background:#19130f;color:#cdbba5}
+      button.compare-order-step:disabled{opacity:.28}
+      @media (max-width:600px){
+        .compare-order-heading{display:block}
+        .compare-order-heading span{display:block;margin-top:4px;text-align:left}
+        .compare-order-item{grid-template-columns:auto auto minmax(0,1fr);gap:8px}
+        .compare-order-actions{grid-column:3;justify-self:end;margin-top:-2px}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function refreshListPositions(list) {
+    const items = [...list.querySelectorAll("[data-compare-order-id]")];
+    items.forEach((item, index) => {
+      const position = item.querySelector("[data-compare-position]");
+      const dot = item.querySelector("[data-compare-color]");
+      const handle = item.querySelector("[data-compare-drag-handle]");
+      const up = item.querySelector('[data-compare-step="-1"]');
+      const down = item.querySelector('[data-compare-step="1"]');
+      if (position) position.textContent = `Z${index + 1}`;
+      if (dot) dot.style.background = colorForPosition(index);
+      if (handle) handle.setAttribute("aria-label", `拖动第 ${index + 1} 条记录调整对比顺序`);
+      if (up) up.disabled = index === 0;
+      if (down) down.disabled = index === items.length - 1;
+      item.setAttribute("aria-posinset", String(index + 1));
+      item.setAttribute("aria-setsize", String(items.length));
+    });
+  }
+
+  function commitOrder(list) {
+    const preferred = [...list.querySelectorAll("[data-compare-order-id]")]
+      .map((item) => item.dataset.compareOrderId)
+      .filter(Boolean);
+    const selected = Policy.orderSelectedIds([...state.selectedHistoryIds], preferred);
+    state.selectedHistoryIds = new Set(selected);
+    renderMultiCompare();
+  }
+
+  function moveItemByStep(item, direction, list) {
+    if (direction < 0) {
+      const previous = item.previousElementSibling;
+      if (previous) list.insertBefore(item, previous);
+    } else {
+      const next = item.nextElementSibling;
+      if (next) list.insertBefore(next, item);
+    }
+    refreshListPositions(list);
+    commitOrder(list);
+  }
+
+  function bindSorting(list) {
+    let nativeItem = null;
+    let nativeCommitted = false;
+    let pointerItem = null;
+    let pointerHandle = null;
+    let pointerId = null;
+
+    list.addEventListener("dragstart", (event) => {
+      const item = event.target.closest("[data-compare-order-id]");
+      if (!item) return;
+      nativeItem = item;
+      nativeCommitted = false;
+      item.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", item.dataset.compareOrderId || "");
+    });
+
+    list.addEventListener("dragover", (event) => {
+      if (!nativeItem) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const target = event.target.closest("[data-compare-order-id]");
+      if (!target || target === nativeItem) return;
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      list.insertBefore(nativeItem, after ? target.nextElementSibling : target);
+      refreshListPositions(list);
+    });
+
+    function finishNative() {
+      if (!nativeItem) return;
+      nativeItem.classList.remove("dragging");
+      nativeItem = null;
+      if (!nativeCommitted) {
+        nativeCommitted = true;
+        commitOrder(list);
+      }
+    }
+
+    list.addEventListener("drop", (event) => {
+      if (!nativeItem) return;
+      event.preventDefault();
+      finishNative();
+    });
+    list.addEventListener("dragend", finishNative);
+
+    list.addEventListener("pointerdown", (event) => {
+      const handle = event.target.closest("[data-compare-drag-handle]");
+      if (!handle || event.pointerType === "mouse") return;
+      const item = handle.closest("[data-compare-order-id]");
+      if (!item) return;
+      pointerItem = item;
+      pointerHandle = handle;
+      pointerId = event.pointerId;
+      item.classList.add("dragging");
+      list.classList.add("pointer-sorting");
+      handle.setPointerCapture?.(pointerId);
+      event.preventDefault();
+    });
+
+    list.addEventListener("pointermove", (event) => {
+      if (!pointerItem || event.pointerId !== pointerId) return;
+      event.preventDefault();
+      pointerItem.style.pointerEvents = "none";
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-compare-order-id]");
+      pointerItem.style.pointerEvents = "";
+      if (!target || target === pointerItem || target.parentElement !== list) return;
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      list.insertBefore(pointerItem, after ? target.nextElementSibling : target);
+      refreshListPositions(list);
+    }, { passive: false });
+
+    function finishPointer(event) {
+      if (!pointerItem || event.pointerId !== pointerId) return;
+      pointerHandle?.releasePointerCapture?.(pointerId);
+      pointerItem.classList.remove("dragging");
+      list.classList.remove("pointer-sorting");
+      pointerItem = null;
+      pointerHandle = null;
+      pointerId = null;
+      commitOrder(list);
+    }
+
+    list.addEventListener("pointerup", finishPointer);
+    list.addEventListener("pointercancel", finishPointer);
+
+    list.querySelectorAll("[data-compare-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = button.closest("[data-compare-order-id]");
+        if (item) moveItemByStep(item, Number(button.dataset.compareStep), list);
+      });
+    });
+
+    list.querySelectorAll("[data-compare-drag-handle]").forEach((handle) => {
+      handle.addEventListener("keydown", (event) => {
+        if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const item = handle.closest("[data-compare-order-id]");
+        if (item) moveItemByStep(item, event.key === "ArrowUp" ? -1 : 1, list);
+      });
+    });
+  }
+
+  function install() {
+    if (root.__grindPsdCompareOrderingInstalled) return;
+    if (!Policy || typeof renderMultiCompare !== "function" || typeof drawMultiRecord3D !== "function") return;
+    root.__grindPsdCompareOrderingInstalled = true;
+    injectStyles();
+
+    renderMultiCompare = function renderMultiCompareSortable() {
+      const records = [...state.selectedHistoryIds]
+        .map((id) => state.store.records.find((record) => record.id === id))
+        .filter(Boolean)
+        .slice(0, 10);
+      const legend = document.getElementById("multiCompareLegend");
+      if (legend) {
+        if (records.length < 2) {
+          legend.innerHTML = "";
+        } else {
+          legend.innerHTML = `
+            <div class="compare-order-panel">
+              <div class="compare-order-heading">
+                <strong>对比顺序</strong>
+                <span>拖动记录调整 Z1–Z${records.length}；下方 3D 图按此顺序同步重绘。</span>
+              </div>
+              <ol class="compare-order-list" id="compareOrderList">
+                ${records.map((record, index) => `
+                  <li class="compare-order-item" data-compare-order-id="${escapeMarkup(record.id)}" draggable="true">
+                    <button class="compare-drag-handle" type="button" data-compare-drag-handle title="拖动排序">⠿</button>
+                    <i class="compare-order-dot" data-compare-color style="background:${colorForPosition(index)}"></i>
+                    <span class="compare-order-copy">
+                      <strong data-compare-position>Z${index + 1}</strong>
+                      <span>${escapeMarkup(record.grinder.brand)} ${escapeMarkup(record.grinder.model)} · 刻度 ${escapeMarkup(record.grinder.setting)} · ${escapeMarkup(recordDate(record.createdAt))}</span>
+                    </span>
+                    <span class="compare-order-actions">
+                      <button class="compare-order-step" type="button" data-compare-step="-1" aria-label="上移">↑</button>
+                      <button class="compare-order-step" type="button" data-compare-step="1" aria-label="下移">↓</button>
+                    </span>
+                  </li>`).join("")}
+              </ol>
+            </div>`;
+          const list = document.getElementById("compareOrderList");
+          if (list) {
+            refreshListPositions(list);
+            bindSorting(list);
+          }
+        }
+      }
+      drawMultiRecord3D(document.getElementById("canvasCmpMulti3d"), records, "pct", document.getElementById("multiCompareNote"));
+    };
+
+    if (typeof state !== "undefined" && state.selectedHistoryIds?.size > 1 && state.activeTab === "array3d") {
+      renderMultiCompare();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => setTimeout(install, 0), { once: true });
+  } else {
+    setTimeout(install, 0);
+  }
+})(typeof window !== "undefined" ? window : null);
