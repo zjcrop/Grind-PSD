@@ -1,10 +1,10 @@
 "use strict";
 
-// Grind-PSD 1.3.1 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.3.2 application shell and Supabase-aware interaction state machine.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.3.1";
+const APP_VERSION = "1.3.2";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -18,6 +18,7 @@ const USER_DATA_PATH = "./data/users";
 const RECENT_GRINDER_WINDOW_MS = 30 * 60 * 1000;
 const MAX_BATCH_RECORDS = 20;
 const MAX_SYNC_QUEUE_ITEMS = 100;
+const EXPORT_URL_LIFETIME_MS = 60_000;
 const PALETTE = ["#d98e32", "#8ab4f8", "#6fbf73", "#e05d8a", "#b085f5", "#4dd0e1", "#ffd54f", "#ff8a65", "#64b5f6", "#c0ca33"];
 
 if (!Core) {
@@ -413,7 +414,7 @@ function normalizeSyncQueue(value) {
 }
 
 function createLocalId(prefix) {
-  if (crypto?.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+  if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -723,6 +724,25 @@ async function pushAndVerifyRecord(record) {
   return verified;
 }
 
+async function pushRecordsIndividually(records) {
+  const failures = [];
+  let uploaded = 0;
+  for (const record of records) {
+    try {
+      await pushAndVerifyRecord(record);
+      uploaded += 1;
+    } catch (error) {
+      markCloudSync(record, "failed", { error: error.message });
+      failures.push({
+        id: record.id,
+        label: `${record.grinder?.brand || ""} ${record.grinder?.model || ""} · ${record.grinder?.setting || ""}`.trim(),
+        error: error.message
+      });
+    }
+  }
+  return { uploaded, failures };
+}
+
 async function uploadAllRecordsToCloud() {
   if (!Cloud?.isSignedIn()) {
     openAuthModal();
@@ -746,21 +766,25 @@ async function uploadAllRecordsToCloud() {
   }
   setCloudSyncIndicator("syncing");
   updateNetworkStatus(`正在上传并校验 ${localRecords.length} 条本地记录…`);
-  try {
-    for (const record of localRecords) await pushAndVerifyRecord(record);
+  const { uploaded, failures } = await pushRecordsIndividually(localRecords);
+  if (!failures.length) {
     setCloudSyncIndicator("success");
     updateNetworkStatus(`云端校验完成 · ${localRecords.length} 条记录与本地一致`);
     toast(`上传成功：${localRecords.length} 条服务器记录已回读并确认与本地一致。`, "success");
     renderAll();
     return true;
-  } catch (error) {
-    const uploading = localRecords.find((record) => state.store.cloudSync?.[record.id]?.status === "uploading");
-    if (uploading) markCloudSync(uploading, "failed", { error: error.message });
-    setCloudSyncIndicator("failed");
-    updateNetworkStatus(`上传或云端校验失败，本地数据未受影响：${error.message}`);
-    toast(`上传失败：${error.message}`, "error");
-    return false;
   }
+  const firstFailure = failures[0];
+  setCloudSyncIndicator("failed");
+  updateNetworkStatus(
+    `云端上传完成 ${uploaded}/${localRecords.length}；失败 ${failures.length} 条，本地数据未受影响`
+  );
+  toast(
+    `上传完成 ${uploaded}/${localRecords.length}；${firstFailure.label || firstFailure.id}：${firstFailure.error}`,
+    "error"
+  );
+  renderAll();
+  return false;
 }
 
 function isValidUserId(value) {
@@ -937,12 +961,44 @@ function exitAuthToBrowse() {
 
 function deviceInstanceId() {
   const key = "grindPsdDeviceInstanceV1";
-  let value = localStorage.getItem(key);
+  let value = "";
+  try {
+    value = localStorage.getItem(key);
+  } catch (error) {
+    return createUuidV4();
+  }
   if (!/^[0-9a-f-]{36}$/i.test(value || "")) {
-    value = crypto.randomUUID();
-    localStorage.setItem(key, value);
+    value = createUuidV4();
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      // A private WebView may deny this secondary identifier while the
+      // in-memory upload can still proceed safely.
+    }
   }
   return value;
+}
+
+function createUuidV4() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10).join("")
+  ].join("-");
 }
 
 async function syncCloudRecords({ quiet = false } = {}) {
@@ -960,12 +1016,24 @@ async function syncCloudRecords({ quiet = false } = {}) {
     state.store.records = dedupeRecords([...merged.values()]);
     const owned = state.store.records.filter((record) => record.user?.id === state.store.user.id);
     setCloudSyncIndicator("syncing");
-    for (const record of owned) await pushAndVerifyRecord(record);
+    const { uploaded, failures } = await pushRecordsIndividually(owned);
     saveStore();
     renderAll();
-    updateNetworkStatus(`Supabase 同步完成 · ${owned.length} 条个人记录`);
+    if (failures.length) {
+      const firstFailure = failures[0];
+      updateNetworkStatus(`Supabase 同步完成 ${uploaded}/${owned.length}；失败 ${failures.length} 条`);
+      setCloudSyncIndicator("failed");
+      if (!quiet) {
+        toast(
+          `同步完成 ${uploaded}/${owned.length}；${firstFailure.label || firstFailure.id}：${firstFailure.error}`,
+          "error"
+        );
+      }
+      return false;
+    }
+    updateNetworkStatus(`Supabase 同步完成 · ${uploaded} 条个人记录`);
     setCloudSyncIndicator("success");
-    if (!quiet) toast(`已同步 ${owned.length} 条记录。`, "success");
+    if (!quiet) toast(`已同步 ${uploaded} 条记录。`, "success");
     return true;
   } catch (error) {
     setCloudSyncIndicator("failed");
@@ -1558,6 +1626,7 @@ async function saveWizardRecord() {
         markCloudSync(record, "failed", { error: error.message });
         setCloudSyncIndicator("failed");
         updateNetworkStatus(`已保存本机；云端上传或校验失败：${error.message}`);
+        toast(`记录已保存在本机；云端同步失败：${error.message}`, "error");
       });
   }
   resetMeasurementPage();
@@ -3032,7 +3101,7 @@ async function openSubmissionIssue() {
 }
 
 function exportAllJson() {
-  downloadJson({
+  return downloadJson({
     schemaVersion: Core.SCHEMA_VERSION,
     standardId: Core.STANDARD_ID,
     exportedAt: new Date().toISOString(),
@@ -3043,7 +3112,7 @@ function exportAllJson() {
 }
 
 function exportSingleRecord(record) {
-  downloadJson(buildPublicPayload(record, false), `${record.id}.json`);
+  return downloadJson(buildPublicPayload(record, false), `${record.id}.json`);
 }
 
 function exportRecordsCsv(records, prefix) {
@@ -3051,9 +3120,10 @@ function exportRecordsCsv(records, prefix) {
     toast("没有可导出的记录。", "error");
     return;
   }
+  const fractionKeys = exportFractionKeys(records);
   const headers = [
     "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_turns", "setting_order",
-    "dose_g", ...Core.WEIGHT_KEYS, "recovered_g", "recovery_pct", "quality_grade",
+    "sieve_profile_id", "dose_g", ...fractionKeys, "recovered_g", "recovery_pct", "quality_grade",
     "coarse_pct", "body_500_1000_pct", "fines_lt300_pct", "bean", "roast_level",
     "method", "duration_sec", "sieve_device", "replicate", "created_at", "notes"
   ];
@@ -3066,8 +3136,9 @@ function exportRecordsCsv(records, prefix) {
     record.grinder.setting,
     record.grinder.settingTurns ?? "",
     record.grinder.settingOrder ?? "",
+    record.sieveProfile?.id || record.standardId || "",
     record.sample.doseG,
-    ...Core.WEIGHT_KEYS.map((key) => record.weightsGrams[key]),
+    ...fractionKeys.map((key) => record.weightsGrams?.[key] ?? ""),
     record.totalG,
     record.metrics.quality.recoveryPct ?? "",
     record.metrics.quality.grade,
@@ -3084,11 +3155,23 @@ function exportRecordsCsv(records, prefix) {
     record.notes
   ]);
   const csv = "\ufeff" + [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-  downloadText(csv, `${prefix}-${dateStamp()}.csv`, "text/csv;charset=utf-8");
+  return downloadText(csv, `${prefix}-${dateStamp()}.csv`, "text/csv;charset=utf-8");
+}
+
+function exportFractionKeys(records) {
+  const keys = new Set(Core.WEIGHT_KEYS);
+  records.forEach((record) => {
+    Core.getRecordSieves(record).forEach((sieve) => {
+      if (sieve?.key) keys.add(sieve.key);
+    });
+    Object.keys(record.weightsGrams || {}).forEach((key) => keys.add(key));
+  });
+  return [...keys];
 }
 
 function csvCell(value) {
-  const text = String(value ?? "");
+  let text = String(value ?? "");
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -3820,19 +3903,83 @@ function debounce(callback, wait) {
 }
 
 function downloadJson(data, filename) {
-  downloadText(JSON.stringify(data, null, 2), filename, "application/json;charset=utf-8");
+  return downloadText(JSON.stringify(data, null, 2), filename, "application/json;charset=utf-8");
 }
 
-function downloadText(text, filename, type) {
+async function downloadText(text, filename, type) {
   const blob = new Blob([text], { type });
+  const shared = await shareExportFile(blob, filename, type);
+  if (shared === "shared") {
+    toast(`已通过系统文件面板导出 ${filename}。`, "success");
+    return true;
+  }
+  if (shared === "cancelled") return false;
+
+  if (typeof window.showSaveFilePicker === "function" && window.isSecureContext) {
+    try {
+      const extension = filename.includes(".") ? `.${filename.split(".").pop()}` : "";
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: type.includes("csv") ? "CSV 数据文件" : "JSON 数据文件",
+          accept: { [type.split(";")[0]]: extension ? [extension] : [] }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      toast(`已导出 ${filename}。`, "success");
+      return true;
+    } catch (error) {
+      if (error?.name === "AbortError") return false;
+      // Continue to the standards-based anchor fallback when a browser exposes
+      // the picker but the current WebView does not implement it completely.
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.rel = "noopener";
+  link.style.display = "none";
   document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  try {
+    link.click();
+    toast(`已生成 ${filename}；请在浏览器“下载”或“文件”中查看。`, "success");
+    return true;
+  } catch (error) {
+    const preview = window.open(url, "_blank", "noopener");
+    if (!preview) {
+      toast(`导出失败：浏览器阻止了文件保存，请允许下载后重试。`, "error");
+      return false;
+    }
+    toast(`已打开 ${filename}，请使用系统“保存到文件”。`, "success");
+    return true;
+  } finally {
+    link.remove();
+    // Mobile Safari, Samsung Internet and Android WebView may consume blob
+    // downloads asynchronously. Revoking in the same task makes both JSON and
+    // CSV links intermittently empty or inert.
+    setTimeout(() => URL.revokeObjectURL(url), EXPORT_URL_LIFETIME_MS);
+  }
+}
+
+async function shareExportFile(blob, filename, type) {
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "")
+    || window.matchMedia?.("(display-mode: standalone)")?.matches;
+  if (!mobile || typeof File !== "function" || typeof navigator.share !== "function") return "unsupported";
+  const file = new File([blob], filename, { type, lastModified: Date.now() });
+  try {
+    if (typeof navigator.canShare === "function" && !navigator.canShare({ files: [file] })) {
+      return "unsupported";
+    }
+    await navigator.share({ files: [file], title: filename });
+    return "shared";
+  } catch (error) {
+    if (error?.name === "AbortError") return "cancelled";
+    return "unsupported";
+  }
 }
 
 function toast(message, type = "") {

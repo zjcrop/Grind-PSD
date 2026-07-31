@@ -5,8 +5,11 @@
   const KEY = "sb_publishable_owicJe5BeJ-4e1ckFwGBjA_luAdvDCO";
   const SESSION_KEY = "grindPsdSupabaseSessionV1";
   const SOURCE_APP = "grind-psd";
+  const REQUEST_TIMEOUT_MS = 20_000;
+  const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
   let session = null;
   let redirectNotice = null;
+  let refreshPromise = null;
 
   function authRedirectUrl() {
     const url = new URL("./", window.location.href);
@@ -21,33 +24,110 @@
     else localStorage.removeItem(SESSION_KEY);
   }
 
-  async function request(path, options = {}) {
+  function errorMessage(data, status) {
+    if (typeof data === "string" && data.trim()) return data.trim().slice(0, 300);
+    return data?.msg
+      || data?.message
+      || data?.error_description
+      || data?.error
+      || `HTTP ${status}`;
+  }
+
+  function wait(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  async function performRequest(path, options = {}) {
+    const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
     const headers = {
       apikey: KEY,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
+      ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+      ...(fetchOptions.headers || {})
     };
     if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-    const response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let response;
+    try {
+      response = await fetch(`${SUPABASE_URL}${path}`, {
+        ...fetchOptions,
+        headers,
+        cache: "no-store",
+        ...(controller ? { signal: controller.signal } : {})
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("连接服务器超时，请检查网络后重试");
+      throw new Error(`无法连接服务器：${error?.message || "网络请求失败"}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok) throw new Error(data?.msg || data?.message || data?.error_description || `HTTP ${response.status}`);
-    return data;
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = text;
+      }
+    }
+    return { response, data };
+  }
+
+  async function request(path, options = {}) {
+    const retryable = path.startsWith("/rest/v1/") && options.retry !== false;
+    const requestOptions = { ...options };
+    delete requestOptions.retry;
+    let result;
+    try {
+      result = await performRequest(path, requestOptions);
+    } catch (error) {
+      if (!retryable) throw error;
+      await wait(400);
+      result = await performRequest(path, requestOptions);
+    }
+    if (
+      result.response.status === 401
+      && session?.refresh_token
+      && !path.startsWith("/auth/v1/token")
+    ) {
+      const refreshed = await refresh();
+      if (refreshed) result = await performRequest(path, requestOptions);
+    }
+    if (retryable && TRANSIENT_STATUS.has(result.response.status)) {
+      await wait(500);
+      result = await performRequest(path, requestOptions);
+    }
+    if (!result.response.ok) {
+      throw new Error(errorMessage(result.data, result.response.status));
+    }
+    return result.data;
   }
 
   async function refresh() {
     if (!session?.refresh_token) return null;
-    try {
-      const next = await request("/auth/v1/token?grant_type=refresh_token", {
-        method: "POST",
-        body: JSON.stringify({ refresh_token: session.refresh_token })
-      });
-      saveSession(next);
-      return next;
-    } catch (error) {
-      saveSession(null);
-      return null;
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
+        try {
+          const result = await performRequest("/auth/v1/token?grant_type=refresh_token", {
+            method: "POST",
+            body: JSON.stringify({ refresh_token: session.refresh_token })
+          });
+          if (!result.response.ok) {
+            const error = new Error(errorMessage(result.data, result.response.status));
+            error.status = result.response.status;
+            throw error;
+          }
+          saveSession(result.data);
+          return result.data;
+        } catch (error) {
+          if ([400, 401].includes(error?.status)) saveSession(null);
+          return null;
+        } finally {
+          refreshPromise = null;
+        }
+      })();
     }
+    return refreshPromise;
   }
 
   async function init() {
@@ -187,6 +267,7 @@
       && payload.grinder?.brand === record.grinder?.brand
       && payload.grinder?.model === record.grinder?.model
       && String(payload.grinder?.setting || "") === String(record.grinder?.setting || "")
+      && nearlyEqual(payload.grinder?.settingTurns, record.grinder?.settingTurns)
       && nearlyEqual(cloud.total_mass_g, record.totalG)
       && String(cloud.quality_label || "U") === String(record.metrics?.quality?.grade || "U");
     const sameFractions = expectedFractions.length === actualFractions.length
