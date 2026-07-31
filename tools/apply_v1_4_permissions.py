@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Triggered after the workflow file exists on the feature branch.
 ROOT = Path(__file__).resolve().parents[1]
 
 
