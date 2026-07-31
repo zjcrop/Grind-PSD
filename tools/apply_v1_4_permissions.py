@@ -80,6 +80,9 @@ pages = replace_once(
 )
 write(".github/workflows/pages.yml", pages)
 
+static_tests = read("tests/test_static_ui.py").replace("1.3.2", "1.4.0")
+write("tests/test_static_ui.py", static_tests)
+
 readme = read("README.md")
 marker = "## v1.4 权限与对比模型"
 if marker not in readme:
