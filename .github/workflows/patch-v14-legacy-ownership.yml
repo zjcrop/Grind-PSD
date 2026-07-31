@@ -1,0 +1,41 @@
+name: Patch Grind-PSD v1.4 legacy ownership
+
+on:
+  push:
+    branches:
+      - feature/account-cloud-permissions-v1-4
+    paths:
+      - tools/patch_v14_legacy_ownership.py
+      - .github/workflows/patch-v14-legacy-ownership.yml
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/account-cloud-permissions-v1-4
+      - run: python3 tools/patch_v14_legacy_ownership.py
+      - run: |
+          node --check assets/permissions-v1.4.js
+          node tests/test_permissions_v14.js
+          node tests/test_core.js
+          node tests/test_mobile_io.js
+          node tests/test_cloud_sync.js
+          python3 -m unittest discover -s tests -v
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/permissions-v1.4.js supabase/migrations/20260731_record_permissions.sql
+          if git diff --cached --quiet; then
+            echo "Ownership patch already applied."
+          else
+            git commit -m "Preserve legacy cloud ownership under account permissions"
+            git push origin HEAD:feature/account-cloud-permissions-v1-4
+          fi
