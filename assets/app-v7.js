@@ -1,10 +1,10 @@
 "use strict";
 
-// Grind-PSD 1.2 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.3 application shell and Supabase-aware interaction state machine.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.2";
+const APP_VERSION = "1.3";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -118,8 +118,9 @@ function freshWizard() {
     model: "",
     color: PALETTE[0],
     setting: "",
+    settingTurns: null,
     settingOrder: null,
-    doseG: 10,
+    doseG: null,
     bean: "",
     roastLevel: "",
     durationSec: 60,
@@ -542,7 +543,7 @@ function bindEvents() {
   $("wizardNext1").addEventListener("click", () => goWizardStep(2));
   $("wizardBack2").addEventListener("click", () => goWizardStep(1));
   $("wizardNext2").addEventListener("click", () => goWizardStep(3));
-  $("wizardBack3").addEventListener("click", () => goWizardStep(2));
+  $("wizardBack3").addEventListener("click", returnFromWeighingStep);
   $("wizardExit2").addEventListener("click", exitMeasurementFlow);
   $("wizardExit3").addEventListener("click", exitMeasurementFlow);
   $("wizardExit1").addEventListener("click", exitMeasurementFlow);
@@ -1152,6 +1153,7 @@ function openWizard(options = {}) {
     state.wizard.color = state.store.lastGrinder.color || PALETTE[0];
   }
   if (options.prefill) Object.assign(state.wizard, options.prefill);
+  if (state.wizard.mode !== "edit-remote") state.wizard.doseG = null;
   $("wizardTitle").textContent = state.wizard.mode === "edit-remote"
     ? "编辑自己的社区记录"
     : "选择或注册研磨设备";
@@ -1182,8 +1184,9 @@ function clearWizardFields() {
   $("newBrandInput").value = "";
   $("newModelInput").value = "";
   $("dialInput").value = "";
+  $("turnsInput").value = "";
   $("dialOrderInput").value = "";
-  $("doseInput").value = "10.00";
+  $("doseInput").value = "";
   $("beanInput").value = "";
   $("roastInput").value = "";
   $("durationInput").value = "60";
@@ -1271,6 +1274,7 @@ function sameAsLast() {
   state.wizard = {
     ...freshWizard(),
     ...state.store.lastGrinder,
+    doseG: null,
     weightsGrams: Core.normalizeWeights({})
   };
   goWizardStep(2);
@@ -1299,8 +1303,10 @@ function goWizardStep(step) {
 function renderWizardStep2() {
   $("step2GrinderLabel").textContent = `${state.wizard.brand} ${state.wizard.model}`;
   $("dialInput").value = state.wizard.setting || "";
+  $("turnsInput").value = state.wizard.settingTurns === null || state.wizard.settingTurns === undefined
+    ? ""
+    : formatPlainNumber(state.wizard.settingTurns, 2);
   $("dialOrderInput").value = state.wizard.settingOrder ?? "";
-  $("doseInput").value = formatPlainNumber(state.wizard.doseG, 2);
   $("beanInput").value = state.wizard.bean || "";
   $("roastInput").value = state.wizard.roastLevel || "";
   $("durationInput").value = state.wizard.durationSec || 60;
@@ -1353,21 +1359,22 @@ function readSieveConfigRows() {
 
 function readWizardStep2() {
   const setting = Core.cleanText($("dialInput").value, 80);
-  const doseG = Core.toNumber($("doseInput").value);
   if (!setting) {
     toast("请填写研磨刻度。", "error");
     $("dialInput").focus();
     return false;
   }
-  if (doseG <= 0) {
-    toast("请填写大于 0 的投粉量。", "error");
-    $("doseInput").focus();
+  const turnsText = $("turnsInput").value.trim();
+  const settingTurns = turnsText === "" ? null : Number(turnsText);
+  if (settingTurns !== null && (!Number.isFinite(settingTurns) || settingTurns < 0)) {
+    toast("研磨圈数必须是大于或等于 0 的数字，或留空。", "error");
+    $("turnsInput").focus();
     return false;
   }
   const orderText = $("dialOrderInput").value.trim();
   state.wizard.setting = setting;
+  state.wizard.settingTurns = settingTurns === null ? null : Core.round(settingTurns, 3);
   state.wizard.settingOrder = orderText === "" ? Core.deriveSettingOrder(setting) : Number(orderText);
-  state.wizard.doseG = doseG;
   state.wizard.bean = Core.cleanText($("beanInput").value, 120);
   state.wizard.roastLevel = Core.cleanText($("roastInput").value, 40);
   state.wizard.durationSec = Core.toNumber($("durationInput").value);
@@ -1386,9 +1393,23 @@ function readWizardStep2() {
     return false;
   }
   state.wizard.sieveProfile = Core.createSieveProfile(sieveRows);
-  state.wizard.weightsGrams = Core.normalizeWeights({}, state.wizard.sieveProfile.bins);
+  state.wizard.weightsGrams = Core.normalizeWeights(
+    state.wizard.weightsGrams,
+    state.wizard.sieveProfile.bins
+  );
   buildWeighRows();
   return true;
+}
+
+function captureWeighingStep() {
+  const doseText = $("doseInput").value.trim();
+  state.wizard.doseG = doseText === "" ? null : Core.toNumber(doseText);
+  state.wizard.weightsGrams = readWeightInputs();
+}
+
+function returnFromWeighingStep() {
+  captureWeighingStep();
+  goWizardStep(2);
 }
 
 function buildWeighRows() {
@@ -1409,6 +1430,9 @@ function buildWeighRows() {
 
 function renderWizardStep3() {
   $("step3GrinderLabel").textContent = `${state.wizard.brand} ${state.wizard.model} · 刻度 ${state.wizard.setting}`;
+  $("doseInput").value = state.wizard.doseG === null || state.wizard.doseG === undefined
+    ? ""
+    : formatPlainNumber(state.wizard.doseG, 2);
   document.querySelectorAll("#weighRows input").forEach((input) => {
     const value = state.wizard.weightsGrams[input.dataset.weight];
     input.value = value ? formatPlainNumber(value, 2) : "";
@@ -1453,7 +1477,12 @@ function updateWeightSummary() {
 }
 
 async function saveWizardRecord() {
-  state.wizard.weightsGrams = readWeightInputs();
+  captureWeighingStep();
+  if (!(state.wizard.doseG > 0)) {
+    toast("请填写大于 0 的豆子初始质量。", "error");
+    $("doseInput").focus();
+    return;
+  }
   const total = Core.round(Core.sum(Object.values(state.wizard.weightsGrams)), 2);
   if (total <= 0) {
     toast("请至少填写一个筛层的重量。", "error");
@@ -1467,6 +1496,7 @@ async function saveWizardRecord() {
       brand: state.wizard.brand,
       model: state.wizard.model,
       setting: state.wizard.setting,
+      settingTurns: state.wizard.settingTurns,
       settingOrder: state.wizard.settingOrder,
       color: state.wizard.color
     },
@@ -1500,8 +1530,8 @@ async function saveWizardRecord() {
     model: record.grinder.model,
     color: record.grinder.color,
     setting: record.grinder.setting,
+    settingTurns: record.grinder.settingTurns,
     settingOrder: record.grinder.settingOrder,
-    doseG: record.sample.doseG,
     bean: record.sample.bean,
     roastLevel: record.sample.roastLevel,
     durationSec: record.sample.durationSec,
@@ -1619,6 +1649,9 @@ function renderRecordSummaryPanel(record, sourceLabel, { actions = false } = {})
           <div class="record-meta">
             <span class="badge"><span class="dot" style="background:${color}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</span>
             <span class="badge">刻度 ${escapeHtml(record.grinder.setting)}</span>
+            ${record.grinder.settingTurns === null || record.grinder.settingTurns === undefined
+              ? ""
+              : `<span class="badge">研磨圈数 ${formatNumber(record.grinder.settingTurns, 2)}</span>`}
             <span class="badge">用户 ${escapeHtml(record.user.id)}</span>
             <span class="badge">${escapeHtml(sourceLabel)}</span>
             <span class="badge">${escapeHtml(formatDateTime(record.createdAt))}</span>
@@ -1635,7 +1668,7 @@ function renderRecordSummaryPanel(record, sourceLabel, { actions = false } = {})
         <tbody>${rows}</tbody>
       </table>
       <div class="metrics-grid">
-        ${metricCard("投粉量", `${formatNumber(record.sample.doseG, 2)} g`)}
+        ${metricCard("豆子初始质量", `${formatNumber(record.sample.doseG, 2)} g`)}
         ${metricCard("分段回收", `${formatNumber(record.totalG, 2)} g`)}
         ${metricCard("质量回收率", quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`)}
         ${metricCard("≥1000 μm", `${formatNumber(record.metrics.coarsePct, 2)}%`)}
@@ -1766,6 +1799,7 @@ function recordTable(records, options = {}) {
         <div class="history-record-detail">
           <div><span>品牌 / 型号</span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></div>
           <div><span>刻度</span><strong>${escapeHtml(record.grinder.setting)}</strong></div>
+          <div><span>研磨圈数</span><strong>${record.grinder.settingTurns === null || record.grinder.settingTurns === undefined ? "—" : formatNumber(record.grinder.settingTurns, 2)}</strong></div>
           <div><span>回收总重</span><strong>${formatNumber(record.totalG, 2)} g</strong></div>
           <div><span>极细粉</span><strong>${formatNumber(record.metrics.finesPct, 2)}%</strong></div>
           <div><span>可靠性</span>${qualityChip(record.metrics.quality)}</div>
@@ -1971,8 +2005,9 @@ function cloneAsRetest(id) {
     model: record.grinder.model,
     color: record.grinder.color,
     setting: record.grinder.setting,
+    settingTurns: record.grinder.settingTurns,
     settingOrder: record.grinder.settingOrder,
-    doseG: record.sample.doseG,
+    doseG: null,
     bean: record.sample.bean,
     roastLevel: record.sample.roastLevel,
     durationSec: record.sample.durationSec,
@@ -2277,6 +2312,7 @@ function searchableRecordText(record) {
     record.grinder.brand,
     record.grinder.model,
     record.grinder.setting,
+    record.grinder.settingTurns,
     record.sample.bean,
     record.sample.roastLevel,
     record.notes
@@ -2368,6 +2404,7 @@ function editOwnedCommunityRecord(id) {
       model: record.grinder.model,
       color: record.grinder.color,
       setting: record.grinder.setting,
+      settingTurns: record.grinder.settingTurns,
       settingOrder: record.grinder.settingOrder,
       doseG: record.sample.doseG,
       bean: record.sample.bean,
@@ -2908,6 +2945,7 @@ function buildPublicPayload(record, licensed) {
       brand: record.grinder.brand,
       model: record.grinder.model,
       setting: record.grinder.setting,
+      settingTurns: record.grinder.settingTurns,
       settingOrder: record.grinder.settingOrder,
       color: record.grinder.color
     },
@@ -3013,7 +3051,7 @@ function exportRecordsCsv(records, prefix) {
     return;
   }
   const headers = [
-    "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_order",
+    "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_turns", "setting_order",
     "dose_g", ...Core.WEIGHT_KEYS, "recovered_g", "recovery_pct", "quality_grade",
     "coarse_pct", "body_500_1000_pct", "fines_lt300_pct", "bean", "roast_level",
     "method", "duration_sec", "sieve_device", "replicate", "created_at", "notes"
@@ -3025,6 +3063,7 @@ function exportRecordsCsv(records, prefix) {
     record.grinder.brand,
     record.grinder.model,
     record.grinder.setting,
+    record.grinder.settingTurns ?? "",
     record.grinder.settingOrder ?? "",
     record.sample.doseG,
     ...Core.WEIGHT_KEYS.map((key) => record.weightsGrams[key]),

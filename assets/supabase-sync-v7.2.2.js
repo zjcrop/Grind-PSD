@@ -187,6 +187,7 @@
       && payload.grinder?.brand === record.grinder?.brand
       && payload.grinder?.model === record.grinder?.model
       && String(payload.grinder?.setting || "") === String(record.grinder?.setting || "")
+      && nearlyEqual(payload.grinder?.settingTurns, record.grinder?.settingTurns)
       && nearlyEqual(cloud.total_mass_g, record.totalG)
       && String(cloud.quality_label || "U") === String(record.metrics?.quality?.grade || "U");
     const sameFractions = expectedFractions.length === actualFractions.length
