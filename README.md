@@ -1,11 +1,19 @@
 # Grind-PSD
 
-Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。1.2 版采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
+Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和比较咖啡研磨粒径分布的深色 PWA 工具。1.3 版采用本地优先架构，并通过 Supabase Auth、PostgreSQL 与 RLS 提供个人云端同步。
 
 ## 在线访问
 
 - 正式网址：<https://zjcrop.github.io/Grind-PSD/>
 - 旧网址 <https://zjcrop.github.io/Grind-PSD/?v=7.1> 仍可访问，并会自动跳转到不带版本参数的正式网址。
+
+## 1.3
+
+- 称重环节可以返回上一步编辑；再次进入称重环节时，豆子初始质量与各分段质量保留在原位置。
+- “投粉量”更名为“豆子初始质量”，并移动到称重环节最顶端。
+- 新建称测的豆子初始质量默认留空，只在最终保存时校验。
+- “研磨刻度”右侧新增可选的“研磨圈数”，支持小数并随记录、CSV 与云端数据保存。
+- 页面、PWA 清单、脚本常量与离线缓存统一升级为 1.3，并为运行资源加入发布版本参数。
 
 ## 1.2
 
@@ -49,7 +57,7 @@ Grind-PSD 是一个按“五张筛网、六个质量分段”记录、绘制和�
 
 ## 数据、同步与隐私
 
-1.2 版的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
+1.3 版的密码不会写入本地业务数据或 GitHub。浏览器仅保存 Supabase 会话；公开仓库只包含 Publishable Key，业务安全由 Auth JWT 与 RLS 共同保证。Secret Key 和 `service_role` 不进入前端。
 
 云端结构包含 `profiles`、`grinders`、`sieve_sets`、`measurements`、`measurement_fractions`、`app_settings`、`sync_tombstones` 和 `data_schema_versions`。旧五段数据存入 `legacy_payload` 并标记为 `legacy-five-bin`，不会伪造拆分。
 

@@ -9,6 +9,7 @@ const record = Core.createRecord({
     brand: "Test",
     model: "G1",
     setting: "2圈+5格",
+    settingTurns: 2.25,
     settingOrder: 2.005,
     color: "#d98e32"
   },
@@ -47,6 +48,7 @@ assert.equal(
 
 const validation = Core.validatePublicRecord(record);
 assert.deepEqual(validation.errors, []);
+assert.equal(validation.record.grinder.settingTurns, 2.25);
 assert.equal(validation.record.grinder.settingOrder, 2.005);
 
 const unlicensed = Core.validatePublicRecord({ ...record, license: null });

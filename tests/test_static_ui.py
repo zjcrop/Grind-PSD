@@ -35,12 +35,12 @@ class StaticUiTests(unittest.TestCase):
         ):
             self.assertRegex(html, rf"""\bid=["']{re.escape(element_id)}["']""")
 
-    def test_service_worker_uses_v12_network_first_shell(self):
+    def test_service_worker_uses_v13_network_first_shell(self):
         service_worker = (ROOT / "service-worker.js").read_text(encoding="utf-8")
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.2", service_worker)
+        self.assertIn("grind-psd-shell-v1.3.0", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -51,6 +51,11 @@ class StaticUiTests(unittest.TestCase):
             r'endsWith\("/assets/supabase-sync-v7\.2\.2\.js"\)[\s\S]+networkFirst\(request, SHELL_CACHE\)',
         )
         self.assertIn("node --check assets/app-v7.js", pages_workflow)
+        self.assertIn(
+            "node --check assets/supabase-sync-v7.2.2.js",
+            pages_workflow,
+        )
+        self.assertNotIn("node --check assets/supabase-sync.js", pages_workflow)
         self.assertNotIn("node --check assets/app-v4.js", pages_workflow)
 
     def test_all_canvas_charts_use_two_to_one_runtime_ratio(self):
@@ -96,6 +101,15 @@ class StaticUiTests(unittest.TestCase):
         save_block = script.split("async function saveWizardRecord()", 1)[1].split(
             "function selectNewestRecord", 1
         )[0]
+        open_block = script.split("function openWizard(", 1)[1].split(
+            "function isLastGrinderRecent", 1
+        )[0]
+        same_block = script.split("function sameAsLast()", 1)[1].split(
+            "function goWizardStep", 1
+        )[0]
+        clone_block = script.split("function cloneAsRetest(", 1)[1].split(
+            "function getRecordsForScope", 1
+        )[0]
 
         self.assertNotIn('id="doseInput"', step2)
         self.assertIn("豆子初始质量 g", step3)
@@ -118,6 +132,35 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("captureWeighingStep();", save_block)
         self.assertIn("豆子初始质量", save_block)
+        self.assertIn(
+            'if (state.wizard.mode !== "edit-remote") state.wizard.doseG = null',
+            open_block,
+        )
+        self.assertIn("doseG: null", same_block)
+        self.assertIn("doseG: null", clone_block)
+
+    def test_grind_turns_is_adjacent_optional_and_persisted(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
+        core = (ROOT / "assets" / "psd-core.js").read_text(encoding="utf-8")
+        schema = (ROOT / "data" / "record.schema.json").read_text(encoding="utf-8")
+        step2 = html[html.index('id="wizardStep2"'):html.index('id="wizardStep3"')]
+
+        self.assertIn("研磨圈数", step2)
+        self.assertRegex(
+            step2,
+            r'id="turnsInput"[^>]+min="0"[^>]+step="0.01"',
+        )
+        self.assertLess(step2.index('id="dialInput"'), step2.index('id="turnsInput"'))
+        self.assertLess(step2.index('id="turnsInput"'), step2.index('id="dialOrderInput"'))
+        self.assertIn("settingTurns: null", script)
+        self.assertIn('$("turnsInput").value = ""', script)
+        self.assertIn("state.wizard.settingTurns =", script)
+        self.assertIn("settingTurns: state.wizard.settingTurns", script)
+        self.assertIn("record.grinder.settingTurns", script)
+        self.assertIn('"setting_turns"', script)
+        self.assertIn("settingTurns,", core)
+        self.assertIn('"settingTurns"', schema)
 
     def test_multi_record_compare_and_mobile_cards(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -182,16 +225,27 @@ class StaticUiTests(unittest.TestCase):
 
     def test_canonical_url_and_legacy_v71_redirect(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "assets" / "app-v7.js").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         manifest = (ROOT / "manifest.webmanifest").read_text(encoding="utf-8")
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
         settings_block = html[html.index('id="settingsModal"'):]
-        self.assertIn("版本：1.2", settings_block)
+        self.assertIn("版本：1.3", settings_block)
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.2.0"', manifest)
+        self.assertIn('"version": "1.3.0"', manifest)
+        self.assertIn('name="application-version" content="1.3.0"', html)
+        for asset in (
+            "./manifest.webmanifest?v=1.3.0",
+            "./assets/styles-v5.css?v=1.3.0",
+            "./assets/psd-core.js?v=1.3.0",
+            "./assets/supabase-sync-v7.2.2.js?v=1.3.0",
+            "./assets/app-v7.js?v=1.3.0",
+        ):
+            self.assertIn(asset, html)
+        self.assertIn('const APP_VERSION = "1.3"', script)
 
     def test_v12_measurement_home_and_adaptive_record_detail(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -242,7 +296,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.2.2', worker)
+        self.assertIn('grind-psd-shell-v1.3.0', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")

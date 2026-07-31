@@ -1,13 +1,10 @@
-Warning: truncated output (original token count: 37841)
-Total output lines: 3832
-
 "use strict";
 
-// Grind-PSD 1.2 application shell and Supabase-aware interaction state machine.
+// Grind-PSD 1.3 application shell and Supabase-aware interaction state machine.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.2";
+const APP_VERSION = "1.3";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -121,6 +118,7 @@ function freshWizard() {
     model: "",
     color: PALETTE[0],
     setting: "",
+    settingTurns: null,
     settingOrder: null,
     doseG: null,
     bean: "",
@@ -1155,6 +1153,7 @@ function openWizard(options = {}) {
     state.wizard.color = state.store.lastGrinder.color || PALETTE[0];
   }
   if (options.prefill) Object.assign(state.wizard, options.prefill);
+  if (state.wizard.mode !== "edit-remote") state.wizard.doseG = null;
   $("wizardTitle").textContent = state.wizard.mode === "edit-remote"
     ? "编辑自己的社区记录"
     : "选择或注册研磨设备";
@@ -1185,6 +1184,7 @@ function clearWizardFields() {
   $("newBrandInput").value = "";
   $("newModelInput").value = "";
   $("dialInput").value = "";
+  $("turnsInput").value = "";
   $("dialOrderInput").value = "";
   $("doseInput").value = "";
   $("beanInput").value = "";
@@ -1274,6 +1274,7 @@ function sameAsLast() {
   state.wizard = {
     ...freshWizard(),
     ...state.store.lastGrinder,
+    doseG: null,
     weightsGrams: Core.normalizeWeights({})
   };
   goWizardStep(2);
@@ -1302,6 +1303,9 @@ function goWizardStep(step) {
 function renderWizardStep2() {
   $("step2GrinderLabel").textContent = `${state.wizard.brand} ${state.wizard.model}`;
   $("dialInput").value = state.wizard.setting || "";
+  $("turnsInput").value = state.wizard.settingTurns === null || state.wizard.settingTurns === undefined
+    ? ""
+    : formatPlainNumber(state.wizard.settingTurns, 2);
   $("dialOrderInput").value = state.wizard.settingOrder ?? "";
   $("beanInput").value = state.wizard.bean || "";
   $("roastInput").value = state.wizard.roastLevel || "";
@@ -1360,8 +1364,16 @@ function readWizardStep2() {
     $("dialInput").focus();
     return false;
   }
+  const turnsText = $("turnsInput").value.trim();
+  const settingTurns = turnsText === "" ? null : Number(turnsText);
+  if (settingTurns !== null && (!Number.isFinite(settingTurns) || settingTurns < 0)) {
+    toast("研磨圈数必须是大于或等于 0 的数字，或留空。", "error");
+    $("turnsInput").focus();
+    return false;
+  }
   const orderText = $("dialOrderInput").value.trim();
   state.wizard.setting = setting;
+  state.wizard.settingTurns = settingTurns === null ? null : Core.round(settingTurns, 3);
   state.wizard.settingOrder = orderText === "" ? Core.deriveSettingOrder(setting) : Number(orderText);
   state.wizard.bean = Core.cleanText($("beanInput").value, 120);
   state.wizard.roastLevel = Core.cleanText($("roastInput").value, 40);
@@ -1484,6 +1496,7 @@ async function saveWizardRecord() {
       brand: state.wizard.brand,
       model: state.wizard.model,
       setting: state.wizard.setting,
+      settingTurns: state.wizard.settingTurns,
       settingOrder: state.wizard.settingOrder,
       color: state.wizard.color
     },
@@ -1517,8 +1530,8 @@ async function saveWizardRecord() {
     model: record.grinder.model,
     color: record.grinder.color,
     setting: record.grinder.setting,
+    settingTurns: record.grinder.settingTurns,
     settingOrder: record.grinder.settingOrder,
-    doseG: record.sample.doseG,
     bean: record.sample.bean,
     roastLevel: record.sample.roastLevel,
     durationSec: record.sample.durationSec,
@@ -1574,7 +1587,689 @@ function getSelectedRecord() {
 }
 
 function renderCurrent() {
-  const record = get…7841 tokens truncated…  unique(state.communityRecords.map((record) => record.grinder.brand)).sort((a, b) => a.localeCompare(b, "zh-CN")),
+  const record = getSelectedRecord();
+  const container = $("currentContent");
+  if (!record) {
+    container.innerHTML = `
+      <div class="panel">
+        <div class="empty-state">
+          <div class="empty-icon">◌</div>
+          <strong>暂无称重记录</strong>
+          <span>点击“＋ 开始测量”，按设备 → 刻度 → 六分段称重流程开始。</span>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地记录";
+  container.innerHTML = `
+    ${renderRecordSummaryPanel(record, sourceLabel, { actions: true })}
+    <div class="panel">
+      <div class="chart-toolbar">
+        <h2>粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span></h2>
+        <select id="currentChartUnit" aria-label="当前图表单位">
+          <option value="g">重量 g</option>
+          <option value="pct">占比 %</option>
+        </select>
+      </div>
+      <div class="canvas-scroll"><canvas id="canvasBar" aria-label="当前记录粒径分布柱状图"></canvas></div>
+    </div>`;
+
+  bindRecordSummaryActions(container, record);
+  $("currentChartUnit").addEventListener("change", renderCurrentChart);
+  renderCurrentChart();
+}
+
+function renderRecordSummaryPanel(record, sourceLabel, { actions = false } = {}) {
+  const quality = record.metrics.quality;
+  const color = Core.normalizeHexColor(record.grinder.color);
+  const rows = Core.getRecordSieves(record).map((sieve) => {
+    const weight = record.weightsGrams[sieve.key] || 0;
+    const pct = record.totalG ? weight / record.totalG * 100 : 0;
+    const legacyBin = sieve.key === "pan80_lt300_g" && record.sieveProfile?.legacy;
+    const sieveName = legacyBin ? "低于 60 目" : sieve.label;
+    return `
+      <tr>
+        <td><strong>${escapeHtml(sieveName)}</strong>${legacyBin ? '<small class="legacy-bin-note">旧五段，未拆分</small>' : ""}</td>
+        <td>${escapeHtml(sieve.range)}</td>
+        <td class="num">${formatNumber(weight, 2)}</td>
+        <td class="num">${formatNumber(pct, 2)}%</td>
+        <td class="bar-cell"><div class="mini-bar" style="width:${Math.max(1.5, Math.min(100, pct))}%;background:${color}"></div></td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <div class="panel">
+      <div class="record-header">
+        <div>
+          <div class="record-title">
+            <h2>汇总表</h2>
+            ${qualityChip(quality)}
+          </div>
+          <div class="record-meta">
+            <span class="badge"><span class="dot" style="background:${color}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</span>
+            <span class="badge">刻度 ${escapeHtml(record.grinder.setting)}</span>
+            ${record.grinder.settingTurns === null || record.grinder.settingTurns === undefined
+              ? ""
+              : `<span class="badge">研磨圈数 ${formatNumber(record.grinder.settingTurns, 2)}</span>`}
+            <span class="badge">用户 ${escapeHtml(record.user.id)}</span>
+            <span class="badge">${escapeHtml(sourceLabel)}</span>
+            <span class="badge">${escapeHtml(formatDateTime(record.createdAt))}</span>
+          </div>
+        </div>
+        ${actions ? `<div class="panel-actions">
+          <button class="ghost small" type="button" data-record-summary-action="export">导出本条 JSON</button>
+          <button class="ghost small" type="button" data-record-summary-action="print">打印</button>
+        </div>` : ""}
+      </div>
+      <table class="current-summary-table">
+        <colgroup><col><col><col><col><col></colgroup>
+        <thead><tr><th>筛分档</th><th>标称粒径区间</th><th class="num">重量 g</th><th class="num">占比</th><th>分布</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="metrics-grid">
+        ${metricCard("豆子初始质量", `${formatNumber(record.sample.doseG, 2)} g`)}
+        ${metricCard("分段回收", `${formatNumber(record.totalG, 2)} g`)}
+        ${metricCard("质量回收率", quality.recoveryPct === null ? "—" : `${formatNumber(quality.recoveryPct, 2)}%`)}
+        ${metricCard("≥1000 μm", `${formatNumber(record.metrics.coarsePct, 2)}%`)}
+        ${metricCard("500–1000 μm", `${formatNumber(record.metrics.bodyPct, 2)}%`)}
+        ${metricCard("<300 μm", `${formatNumber(record.metrics.finesPct, 2)}%`)}
+      </div>
+      <p class="note">
+        方法：${escapeHtml(record.sample.method || "未记录")} ·
+        时长：${record.sample.durationSec ? `${formatNumber(record.sample.durationSec, 0)} s` : "未记录"} ·
+        筛具：${escapeHtml(record.sample.sieveDevice || "未记录")} ·
+        重复：#${formatNumber(record.sample.replicate || 1, 0)}
+        ${record.sample.bean ? ` · 样品：${escapeHtml(record.sample.bean)}` : ""}
+        ${record.sample.roastLevel ? ` · 烘焙：${escapeHtml(record.sample.roastLevel)}` : ""}
+      </p>
+      ${record.notes ? `<p class="note">备注：${escapeHtml(record.notes)}</p>` : ""}
+    </div>`;
+}
+
+function bindRecordSummaryActions(container, record) {
+  container.querySelectorAll("[data-record-summary-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.recordSummaryAction;
+      if (action === "export") exportSingleRecord(record);
+      if (action === "print") window.print();
+    });
+  });
+}
+
+function metricCard(label, value) {
+  return `<div class="metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function qualityChip(quality) {
+  const grade = quality?.grade || "U";
+  const label = quality?.gradeLabel || "未评级";
+  return `<span class="quality-chip"><span class="grade grade-${grade.toLowerCase()}">${escapeHtml(grade)}</span>${escapeHtml(label)}</span>`;
+}
+
+function renderCurrentChart() {
+  const canvas = $("canvasBar");
+  const record = getSelectedRecord();
+  if (!canvas || !record) return;
+  drawBarChart(canvas, record, $("currentChartUnit")?.value || "g");
+}
+
+function refreshHistoryFilters() {
+  const brandSelect = $("historyBrandFilter");
+  const modelSelect = $("historyModelFilter");
+  const currentBrand = brandSelect.value;
+  const currentModel = modelSelect.value;
+  const brands = unique(state.store.records.map((record) => record.grinder.brand))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  brandSelect.innerHTML = '<option value="">全部品牌</option>' +
+    brands.map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`).join("");
+  if (brands.includes(currentBrand)) brandSelect.value = currentBrand;
+  const models = unique(state.store.records
+    .filter((record) => !brandSelect.value || record.grinder.brand === brandSelect.value)
+    .map((record) => record.grinder.model))
+    .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
+  modelSelect.innerHTML = '<option value="">全部型号</option>' +
+    models.map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join("");
+  if (models.includes(currentModel)) modelSelect.value = currentModel;
+}
+
+function getFilteredHistoryRecords() {
+  const query = $("historySearch").value.trim().toLowerCase();
+  const brand = $("historyBrandFilter").value;
+  const model = $("historyModelFilter").value;
+  const grade = $("historyGradeFilter").value;
+  const dateFrom = $("historyDateFrom").value;
+  const dateTo = $("historyDateTo").value;
+  const sort = $("historySort").value;
+  const qualityRank = { A: 5, B: 4, C: 3, D: 2, U: 1 };
+  return state.store.records.filter((record) => {
+    if (brand && record.grinder.brand !== brand) return false;
+    if (model && record.grinder.model !== model) return false;
+    if (grade && record.metrics.quality.grade !== grade) return false;
+    const day = String(record.createdAt || "").slice(0, 10);
+    if (dateFrom && day < dateFrom) return false;
+    if (dateTo && day > dateTo) return false;
+    if (!query) return true;
+    return searchableRecordText(record).includes(query);
+  }).sort((a, b) => {
+    if (sort === "date-asc") return String(a.createdAt).localeCompare(String(b.createdAt));
+    if (sort === "brand-asc") return `${a.grinder.brand} ${a.grinder.model} ${a.createdAt}`.localeCompare(
+      `${b.grinder.brand} ${b.grinder.model} ${b.createdAt}`, "zh-CN", { numeric: true }
+    );
+    if (sort === "quality-desc" || sort === "quality-asc") {
+      const delta = (qualityRank[b.metrics.quality.grade] || 0) - (qualityRank[a.metrics.quality.grade] || 0);
+      return sort === "quality-desc" ? delta : -delta;
+    }
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  });
+}
+
+function grinderFilterKey(brand, model) {
+  return [brand, model].map((part) => encodeURIComponent(String(part || ""))).join("::");
+}
+
+function renderHistory() {
+  const container = $("historyContent");
+  state.selectedHistoryIds = new Set([...state.selectedHistoryIds]
+    .filter((id) => state.store.records.some((record) => record.id === id)));
+  const records = getFilteredHistoryRecords();
+  if (!records.length) {
+    container.innerHTML = '<div class="empty">没有符合条件的本地记录。</div>';
+    updateHistorySelectionStatus();
+    return;
+  }
+  container.innerHTML = recordTable(records, { community: false, selectable: true });
+  bindRecordTableActions(container, false);
+  bindHistorySelection(container);
+  updateHistorySelectionStatus();
+}
+
+function recordTable(records, options = {}) {
+  if (options.selectable && !options.community) {
+    return `<div class="history-record-list">${records.map((record) => `
+      <details class="history-record" data-history-details>
+        <summary>
+          <input type="checkbox" data-history-select="${escapeHtml(record.id)}" ${state.selectedHistoryIds.has(record.id) ? "checked" : ""} aria-label="选择记录">
+          <span class="history-record-line">
+            <time>${escapeHtml(formatDateTime(record.createdAt))}</time>
+            <strong>${escapeHtml(record.grinder.model)}/${escapeHtml(record.grinder.setting)}</strong>
+            <span>${escapeHtml(record.metrics.quality.gradeLabel || "未评级")}${isCloudVerified(record) ? '<i class="record-cloud-dot" title="已同步并通过云端一致性校验" aria-label="已同步到云端"></i>' : ""}</span>
+          </span>
+        </summary>
+        <div class="history-record-detail">
+          <div><span>品牌 / 型号</span><strong>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</strong></div>
+          <div><span>刻度</span><strong>${escapeHtml(record.grinder.setting)}</strong></div>
+          <div><span>研磨圈数</span><strong>${record.grinder.settingTurns === null || record.grinder.settingTurns === undefined ? "—" : formatNumber(record.grinder.settingTurns, 2)}</strong></div>
+          <div><span>回收总重</span><strong>${formatNumber(record.totalG, 2)} g</strong></div>
+          <div><span>极细粉</span><strong>${formatNumber(record.metrics.finesPct, 2)}%</strong></div>
+          <div><span>可靠性</span>${qualityChip(record.metrics.quality)}</div>
+          <div><span>样品</span><strong>${record.sample.bean ? escapeHtml(record.sample.bean) : "—"}</strong></div>
+          <div class="history-detail-actions">
+            <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
+            <button type="button" data-clone-record="${escapeHtml(record.id)}">复测</button>
+            <button type="button" data-delete-record="${escapeHtml(record.id)}">删除</button>
+          </div>
+        </div>
+      </details>`).join("")}</div>`;
+  }
+  return `
+    <table class="record-table">
+      <thead>
+        <tr>
+          ${options.community ? '<th class="select-cell"><input type="checkbox" data-select-all aria-label="全选筛选结果"></th>' : ""}
+          ${options.selectable ? '<th class="select-cell">对比</th>' : ""}
+          <th>用户</th><th>磨豆机</th><th>刻度</th><th class="num">回收总重</th>
+          <th class="num">极细粉</th><th>等级</th><th>样品</th><th>时间</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((record) => {
+          const canManageCommunity = Boolean(
+            options.community &&
+            state.identityConfirmed &&
+            record.user.id === state.store.user.id
+          );
+          return `
+          <tr>
+            ${options.community ? `<td class="select-cell"><input type="checkbox" data-community-select="${escapeHtml(record.id)}" ${state.selectedCommunityIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
+            ${options.selectable ? `<td class="select-cell" data-label="对比"><input type="checkbox" data-history-select="${escapeHtml(record.id)}" ${state.selectedHistoryIds.has(record.id) ? "checked" : ""} aria-label="选择记录"></td>` : ""}
+            <td data-label="用户">${escapeHtml(record.user.id)}</td>
+            <td data-label="设备"><span class="dot" style="background:${Core.normalizeHexColor(record.grinder.color)}"></span>${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}</td>
+            <td data-label="刻度">${escapeHtml(record.grinder.setting)}</td>
+            <td data-label="回收总重" class="num">${formatNumber(record.totalG, 2)} g</td>
+            <td data-label="极细粉" class="num">${formatNumber(record.metrics.finesPct, 2)}%</td>
+            <td data-label="等级">${qualityChip(record.metrics.quality)}</td>
+            <td data-label="样品" class="wrap-cell">${record.sample.bean ? `<span class="truncate">${escapeHtml(record.sample.bean)}</span>` : "—"}</td>
+            <td data-label="日期">${escapeHtml(formatDate(record.createdAt))}</td>
+            <td data-label="操作">
+              <div class="row-actions">
+                <button type="button" data-view-record="${escapeHtml(record.id)}">查看</button>
+                ${options.community
+                  ? `<button type="button" data-import-record="${escapeHtml(record.id)}">导入</button>
+                     <button type="button" data-user-download="${escapeHtml(record.user.id)}">用户库</button>
+                     ${canManageCommunity
+                       ? `<button type="button" data-edit-community="${escapeHtml(record.id)}">编辑</button>
+                          <button class="danger-inline" type="button" data-delete-community="${escapeHtml(record.id)}">删除</button>`
+                       : ""}`
+                  : `<button type="button" data-clone-record="${escapeHtml(record.id)}">复测</button><button type="button" data-delete-record="${escapeHtml(record.id)}">删除</button>`}
+              </div>
+            </td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+}
+
+function bindHistorySelection(container) {
+  container.querySelectorAll("[data-history-select]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const id = checkbox.dataset.historySelect;
+      if (checkbox.checked && state.selectedHistoryIds.size >= MAX_COMPARE_RECORDS) {
+        checkbox.checked = false;
+        toast(`最多同时选择 ${MAX_COMPARE_RECORDS} 条测次。`, "error");
+        return;
+      }
+      if (checkbox.checked) state.selectedHistoryIds.add(id);
+      else state.selectedHistoryIds.delete(id);
+      updateHistorySelectionStatus();
+    });
+  });
+  container.querySelectorAll("[data-history-details]").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (!details.open) return;
+      container.querySelectorAll("[data-history-details][open]").forEach((other) => {
+        if (other !== details) other.open = false;
+      });
+    });
+    details.querySelector("summary input")?.addEventListener("click", (event) => event.stopPropagation());
+  });
+}
+
+function updateHistorySelectionStatus() {
+  const count = state.selectedHistoryIds.size;
+  $("historySelectionStatus").textContent = `已选择 ${count} / ${MAX_COMPARE_RECORDS} 条`;
+  $("compareHistorySelectionBtn").textContent = count > 1 ? "对比所选" : "查看详情";
+  $("compareHistorySelectionBtn").disabled = count < 1;
+}
+
+function clearHistorySelection() {
+  state.selectedHistoryIds.clear();
+  renderHistory();
+  renderMultiCompare();
+}
+
+function selectAllHistory() {
+  const records = getFilteredHistoryRecords();
+  state.selectedHistoryIds = new Set(records.slice(0, MAX_COMPARE_RECORDS).map((record) => record.id));
+  renderHistory();
+  renderMultiCompare();
+  if (records.length > MAX_COMPARE_RECORDS) {
+    toast(`对比最多支持 ${MAX_COMPARE_RECORDS} 条，已选择当前筛选结果的前 ${MAX_COMPARE_RECORDS} 条。`);
+  }
+}
+
+function compareHistorySelection() {
+  if (!state.selectedHistoryIds.size) {
+    toast("请至少选择一条记录。", "error");
+    return;
+  }
+  if (state.selectedHistoryIds.size === 1) {
+    state.selectedRecordId = [...state.selectedHistoryIds][0];
+    state.selectedRecordSource = "local";
+  }
+  switchTab("array3d");
+}
+
+function bindRecordTableActions(container, community) {
+  container.querySelectorAll("[data-view-record]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedRecordId = button.dataset.viewRecord;
+      state.selectedRecordSource = community ? "community" : "local";
+      state.selectedHistoryIds = new Set([button.dataset.viewRecord]);
+      renderRecordDetail();
+      switchTab("array3d");
+    });
+  });
+  container.querySelectorAll("[data-delete-record]").forEach((button) => {
+    button.addEventListener("click", () => deleteLocalRecord(button.dataset.deleteRecord));
+  });
+  container.querySelectorAll("[data-clone-record]").forEach((button) => {
+    button.addEventListener("click", () => cloneAsRetest(button.dataset.cloneRecord));
+  });
+  container.querySelectorAll("[data-import-record]").forEach((button) => {
+    button.addEventListener("click", () => importCommunityRecord(button.dataset.importRecord));
+  });
+  container.querySelectorAll("[data-user-download]").forEach((button) => {
+    button.addEventListener("click", () => downloadUserLibrary(button.dataset.userDownload));
+  });
+  container.querySelectorAll("[data-edit-community]").forEach((button) => {
+    button.addEventListener("click", () => editOwnedCommunityRecord(button.dataset.editCommunity));
+  });
+  container.querySelectorAll("[data-delete-community]").forEach((button) => {
+    button.addEventListener("click", () => requestDeleteCommunityRecord(button.dataset.deleteCommunity));
+  });
+  container.querySelectorAll("[data-community-select]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.selectedCommunityIds.add(checkbox.dataset.communitySelect);
+      else state.selectedCommunityIds.delete(checkbox.dataset.communitySelect);
+    });
+  });
+  const selectAll = container.querySelector("[data-select-all]");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      getFilteredCommunityRecords().forEach((record) => {
+        if (selectAll.checked) state.selectedCommunityIds.add(record.id);
+        else state.selectedCommunityIds.delete(record.id);
+      });
+      renderCommunity();
+    });
+  }
+}
+
+function deleteLocalRecord(id) {
+  const record = state.store.records.find((item) => item.id === id);
+  if (!record) return;
+  if (!window.confirm(`删除 ${record.grinder.brand} ${record.grinder.model} · 刻度 ${record.grinder.setting}？`)) return;
+  state.store.records = state.store.records.filter((item) => item.id !== id);
+  if (state.selectedRecordId === id) {
+    state.selectedRecordId = state.store.records[0]?.id || null;
+    state.selectedRecordSource = "local";
+  }
+  saveStore();
+  renderAll();
+  toast("本地记录已删除。", "success");
+}
+
+function clearLocalRecords() {
+  if (!state.store.records.length) return;
+  if (!window.confirm(`确定清空 ${state.store.records.length} 条本地记录？此操作不会删除已公开提交的数据。建议先导出备份。`)) return;
+  state.store.records = [];
+  state.selectedRecordId = null;
+  state.selectedRecordSource = "local";
+  saveStore();
+  renderAll();
+  toast("本地记录已清空。", "success");
+}
+
+function cloneAsRetest(id) {
+  if (!state.identityConfirmed || state.store.user.temporary) {
+    openAuthModal();
+    toast("复测前请先登录对应用户 ID。", "error");
+    return;
+  }
+  const record = state.store.records.find((item) => item.id === id);
+  if (!record) return;
+  state.wizard = {
+    ...freshWizard(),
+    brand: record.grinder.brand,
+    model: record.grinder.model,
+    color: record.grinder.color,
+    setting: record.grinder.setting,
+    settingTurns: record.grinder.settingTurns,
+    settingOrder: record.grinder.settingOrder,
+    doseG: null,
+    bean: record.sample.bean,
+    roastLevel: record.sample.roastLevel,
+    durationSec: record.sample.durationSec,
+    sieveDevice: record.sample.sieveDevice,
+    method: record.sample.method,
+    replicate: (record.sample.replicate || 1) + 1,
+    notes: "",
+    weightsGrams: Core.normalizeWeights({})
+  };
+  $("wizardUserLabel").textContent = `${state.store.user.name} (${state.store.user.id})`;
+  $("sameAsLastBtn").hidden = !state.store.lastGrinder;
+  clearWizardFields();
+  switchTab("measure");
+  showMeasurementWorkspace();
+  goWizardStep(2);
+}
+
+function getRecordsForScope(scope) {
+  if (scope === "local") return [...state.store.records];
+  if (scope === "community") return [...state.communityRecords];
+  return getAllRecords();
+}
+
+function getAllRecords() {
+  const map = new Map();
+  state.communityRecords.forEach((record) => map.set(record.id, record));
+  state.store.records.forEach((record) => map.set(record.id, record));
+  return [...map.values()];
+}
+
+function groupRecords(records) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const key = Core.recordGroupKey(record);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        userId: record.user.id,
+        brand: record.grinder.brand,
+        model: record.grinder.model,
+        color: Core.normalizeHexColor(record.grinder.color),
+        records: []
+      });
+    }
+    groups.get(key).records.push(record);
+  });
+  return [...groups.values()].sort((a, b) => {
+    return `${a.brand} ${a.model} ${a.userId}`.localeCompare(`${b.brand} ${b.model} ${b.userId}`, "zh-CN", { numeric: true });
+  });
+}
+
+function latestBySetting(records) {
+  const map = new Map();
+  [...records].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach((record) => {
+    map.set(record.grinder.setting, record);
+  });
+  return [...map.values()].sort(Core.compareSettings);
+}
+
+function refresh3dGrinderOptions() {
+  const select = $("sel3dGrinder");
+  const overlay = $("sel3dOverlay");
+  const current = select.value;
+  const currentOverlay = overlay.value;
+  const groups = groupRecords(getRecordsForScope($("sel3dScope").value));
+  const options = groups.map((group) => `<option value="${escapeHtml(group.key)}">${escapeHtml(group.userId)} · ${escapeHtml(group.brand)} ${escapeHtml(group.model)} (${latestBySetting(group.records).length} 刻度)</option>`).join("");
+  select.innerHTML = groups.length
+    ? options
+    : '<option value="">暂无可用记录</option>';
+  if (groups.some((group) => group.key === current)) select.value = current;
+  overlay.innerHTML = `<option value="">不叠加</option>${options}`;
+  if (groups.some((group) => group.key === currentOverlay) && currentOverlay !== select.value) {
+    overlay.value = currentOverlay;
+  }
+  [...overlay.options].forEach((option) => {
+    option.disabled = Boolean(option.value) && option.value === select.value;
+  });
+  if (overlay.value === select.value) overlay.value = "";
+}
+
+function render3D() {
+  const groups = groupRecords(getRecordsForScope($("sel3dScope").value));
+  const primary = groups.find((item) => item.key === $("sel3dGrinder").value) || groups[0] || null;
+  const overlay = groups.find((item) => item.key === $("sel3dOverlay").value) || null;
+  if (primary && $("sel3dGrinder").value !== primary.key) $("sel3dGrinder").value = primary.key;
+  [...$("sel3dOverlay").options].forEach((option) => {
+    option.disabled = Boolean(option.value) && option.value === primary?.key;
+  });
+  if (overlay?.key === primary?.key) $("sel3dOverlay").value = "";
+  const selected = [primary, overlay].filter((group, index, list) => {
+    return group && list.findIndex((candidate) => candidate.key === group.key) === index;
+  });
+  drawArray3D($("canvas3d"), selected, $("sel3dUnit").value, $("note3d"));
+}
+
+function refreshCompareOptions() {
+  // 多记录对比直接使用历史记录中的勾选集合，无需维护第二套双记录选择器。
+}
+
+function findAnyRecord(id) {
+  return getAllRecords().find((record) => record.id === id) || null;
+}
+
+function swapCompare() {
+  const a = $("cmpRecordA").value;
+  $("cmpRecordA").value = $("cmpRecordB").value;
+  $("cmpRecordB").value = a;
+  renderCompare();
+}
+
+function renderCompare() {
+  renderRecordDetail();
+}
+
+function renderRecordDetail() {
+  const selectedLocalRecords = [...state.selectedHistoryIds]
+    .map((id) => state.store.records.find((record) => record.id === id))
+    .filter(Boolean)
+    .slice(0, MAX_COMPARE_RECORDS);
+  const isMulti = selectedLocalRecords.length > 1;
+  $("singleRecordDetail").hidden = isMulti;
+  $("multiRecordDetail").hidden = !isMulti;
+  $("recordDetailTitle").textContent = isMulti
+    ? `对比分析 · ${selectedLocalRecords.length} 条记录`
+    : "记录详情";
+
+  if (isMulti) {
+    renderMultiCompare();
+    return;
+  }
+
+  // An older cached v1.2 HTML shell may briefly run the current script during
+  // a service-worker rollout. Support its former container ID so mixed assets
+  // cannot abort the whole interface with null.innerHTML.
+  const summaryContainer = $("singleRecordSummary") || $("singleRecordMeta");
+  const chartTitle = $("singleRecordChartTitle");
+  const record = selectedLocalRecords[0] || getSelectedRecord();
+  if (!record) {
+    if (summaryContainer) summaryContainer.innerHTML = "";
+    if (chartTitle) chartTitle.textContent = "粉径分布柱状图";
+    $("singleRecordNote").textContent = "暂无可查看的记录。请先完成称测，或从历史记录选择一条记录。";
+    const { ctx, width, height } = setupCanvas($("canvasRecordDetail"));
+    drawEmptyCanvas(ctx, width, height, "暂无记录");
+    return;
+  }
+  state.selectedRecordId = record.id;
+  state.selectedRecordSource = state.store.records.some((item) => item.id === record.id) ? "local" : "community";
+  const sourceLabel = state.selectedRecordSource === "community" ? "社区记录" : "本地历史记录";
+  if (summaryContainer) {
+    summaryContainer.innerHTML = renderRecordSummaryPanel(record, sourceLabel, { actions: true });
+    bindRecordSummaryActions(summaryContainer, record);
+  }
+  if (chartTitle) {
+    chartTitle.innerHTML = `粉径分布柱状图 <span class="hint">${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)} · 刻度 ${escapeHtml(record.grinder.setting)}</span>`;
+  }
+  $("singleRecordNote").textContent = "以上信息为该次称测保存时的完整记录；切换纵轴不会修改原始数据。";
+  drawBarChart($("canvasRecordDetail"), record, $("recordDetailUnit").value);
+}
+
+function renderMultiCompare() {
+  const records = [...state.selectedHistoryIds]
+    .map((id) => state.store.records.find((record) => record.id === id))
+    .filter(Boolean)
+    .slice(0, MAX_COMPARE_RECORDS);
+  $("multiCompareLegend").innerHTML = records.map((record, index) => `
+    <span class="multi-legend-item">
+      <i style="background:${paletteForIndex(index)}"></i>
+      Z${index + 1} · ${escapeHtml(record.grinder.brand)} ${escapeHtml(record.grinder.model)}
+      · ${escapeHtml(record.grinder.setting)} · ${escapeHtml(formatDate(record.createdAt))}
+    </span>`).join("");
+  drawMultiRecord3D($("canvasCmpMulti3d"), records, "pct", $("multiCompareNote"));
+}
+
+function deltaCard(label, value) {
+  return `<div class="delta-card">${escapeHtml(label)}<strong>${escapeHtml(value)}</strong></div>`;
+}
+
+async function syncCommunity({ quiet = false } = {}) {
+  if (!navigator.onLine) {
+    if (!quiet) toast("当前处于离线状态，已保留上次缓存的社区数据。", "error");
+    updateNetworkStatus("离线模式 · 使用上次社区数据库缓存");
+    return;
+  }
+
+  $("networkDot").className = "status-dot syncing";
+  updateNetworkStatus("正在同步社区数据库…");
+  $("communityStatus").textContent = "正在同步…";
+  try {
+    const response = await fetch(`${DATABASE_PATH}?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const database = await response.json();
+    const records = Array.isArray(database.records)
+      ? database.records.map(Core.normalizeRecord).filter(Boolean)
+      : [];
+    state.communityRecords = dedupeRecords(records);
+    state.communityMeta = {
+      updatedAt: database.updatedAt || null,
+      users: database.users || {},
+      recordCount: database.recordCount ?? state.communityRecords.length,
+      userCount: database.userCount ?? unique(state.communityRecords.map((record) => record.user.id)).length
+    };
+    reconcileSyncQueueFromDatabase();
+    state.communityFresh = true;
+    localStorage.setItem(COMMUNITY_CACHE_KEY, JSON.stringify({
+      cachedAt: new Date().toISOString(),
+      meta: state.communityMeta,
+      records: state.communityRecords
+    }));
+    refreshCommunityFilters();
+    updateCommunitySummary();
+    renderCommunity();
+    renderRecordDetail();
+    renderSyncLog();
+    updateNetworkStatus(`社区数据库已同步 · ${state.communityRecords.length} 条记录`);
+    $("communityStatus").textContent = `已同步 ${state.communityRecords.length} 条记录`;
+    if ($("authNetworkStatus")) {
+      prepareAuthModal();
+    }
+    if (!quiet) toast("社区数据库同步完成。", "success");
+  } catch (error) {
+    state.communityFresh = false;
+    updateNetworkStatus("社区数据库同步失败 · 本地记录不受影响");
+    $("communityStatus").textContent = `同步失败：${error.message}`;
+    if (!quiet) toast(`社区数据库同步失败：${error.message}`, "error");
+    if ($("authNetworkStatus")) updateAuthNetworkStatus();
+  }
+}
+
+function loadCachedCommunity() {
+  try {
+    const cached = JSON.parse(
+      localStorage.getItem(COMMUNITY_CACHE_KEY)
+      || localStorage.getItem(PREVIOUS_COMMUNITY_CACHE_KEY)
+    );
+    if (!cached || !Array.isArray(cached.records)) return;
+    state.communityRecords = dedupeRecords(cached.records.map(Core.normalizeRecord).filter(Boolean));
+    state.communityMeta = cached.meta || null;
+    $("communityStatus").textContent = `已载入缓存 ${state.communityRecords.length} 条`;
+  } catch (error) {
+    // A broken cache can be replaced by the next successful sync.
+  }
+}
+
+function updateCommunitySummary() {
+  const userCount = state.communityMeta?.userCount
+    ?? unique(state.communityRecords.map((record) => record.user.id)).length;
+  const recordCount = state.communityMeta?.recordCount ?? state.communityRecords.length;
+  $("communityUserCount").textContent = String(userCount);
+  $("communityRecordCount").textContent = String(recordCount);
+  $("communityUpdatedAt").textContent = state.communityMeta?.updatedAt ? formatDate(state.communityMeta.updatedAt) : "—";
+  $("communityCountBadge").textContent = String(state.communityRecords.length);
+}
+
+function refreshCommunityFilters() {
+  fillSelect(
+    $("communityUserFilter"),
+    unique(state.communityRecords.map((record) => record.user.id)).sort(),
+    "全部用户"
+  );
+  fillSelect(
+    $("communityBrandFilter"),
+    unique(state.communityRecords.map((record) => record.grinder.brand)).sort((a, b) => a.localeCompare(b, "zh-CN")),
     "全部品牌"
   );
 }
@@ -1617,6 +2312,7 @@ function searchableRecordText(record) {
     record.grinder.brand,
     record.grinder.model,
     record.grinder.setting,
+    record.grinder.settingTurns,
     record.sample.bean,
     record.sample.roastLevel,
     record.notes
@@ -1708,6 +2404,7 @@ function editOwnedCommunityRecord(id) {
       model: record.grinder.model,
       color: record.grinder.color,
       setting: record.grinder.setting,
+      settingTurns: record.grinder.settingTurns,
       settingOrder: record.grinder.settingOrder,
       doseG: record.sample.doseG,
       bean: record.sample.bean,
@@ -2248,6 +2945,7 @@ function buildPublicPayload(record, licensed) {
       brand: record.grinder.brand,
       model: record.grinder.model,
       setting: record.grinder.setting,
+      settingTurns: record.grinder.settingTurns,
       settingOrder: record.grinder.settingOrder,
       color: record.grinder.color
     },
@@ -2353,7 +3051,7 @@ function exportRecordsCsv(records, prefix) {
     return;
   }
   const headers = [
-    "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_order",
+    "record_id", "user_id", "user_name", "brand", "model", "setting", "setting_turns", "setting_order",
     "dose_g", ...Core.WEIGHT_KEYS, "recovered_g", "recovery_pct", "quality_grade",
     "coarse_pct", "body_500_1000_pct", "fines_lt300_pct", "bean", "roast_level",
     "method", "duration_sec", "sieve_device", "replicate", "created_at", "notes"
@@ -2365,6 +3063,7 @@ function exportRecordsCsv(records, prefix) {
     record.grinder.brand,
     record.grinder.model,
     record.grinder.setting,
+    record.grinder.settingTurns ?? "",
     record.grinder.settingOrder ?? "",
     record.sample.doseG,
     ...Core.WEIGHT_KEYS.map((key) => record.weightsGrams[key]),

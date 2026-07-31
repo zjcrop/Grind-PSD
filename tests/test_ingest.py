@@ -22,6 +22,7 @@ def valid_payload():
             "brand": "Test",
             "model": "G1",
             "setting": "18",
+            "settingTurns": 2.25,
             "settingOrder": 18,
             "color": "#d98e32",
         },
@@ -104,6 +105,7 @@ class IngestTests(unittest.TestCase):
         )
         self.assertEqual(record["metrics"]["quality"]["grade"], "A")
         self.assertEqual(record["metrics"]["finesPct"], 12)
+        self.assertEqual(record["grinder"]["settingTurns"], 2.25)
         self.assertFalse(ingest.update_database(record))
 
         database = json.loads(ingest.DATABASE_PATH.read_text(encoding="utf-8"))

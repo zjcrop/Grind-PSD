@@ -297,6 +297,12 @@
     const settingOrder = rawSettingOrder !== "" && rawSettingOrder !== null && rawSettingOrder !== undefined && Number.isFinite(settingOrderInput)
       ? settingOrderInput
       : deriveSettingOrder(input.grinder?.setting);
+    const rawSettingTurns = input.grinder?.settingTurns;
+    const settingTurnsInput = Number(rawSettingTurns);
+    const settingTurns = rawSettingTurns !== "" && rawSettingTurns !== null && rawSettingTurns !== undefined
+      && Number.isFinite(settingTurnsInput) && settingTurnsInput >= 0
+      ? round(settingTurnsInput, 3)
+      : null;
 
     const sample = {
       doseG: round(toNumber(input.sample?.doseG || totalG), 2),
@@ -321,6 +327,7 @@
         brand: cleanText(input.grinder?.brand, 80),
         model: cleanText(input.grinder?.model, 80),
         setting: cleanText(input.grinder?.setting, 80),
+        settingTurns,
         settingOrder,
         color: normalizeHexColor(input.grinder?.color)
       },

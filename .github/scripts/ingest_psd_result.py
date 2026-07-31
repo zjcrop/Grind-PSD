@@ -450,6 +450,9 @@ def validate_and_normalize(
     brand = required_text(grinder, "brand", 80, "grinder")
     model = required_text(grinder, "model", 80, "grinder")
     setting = required_text(grinder, "setting", 80, "grinder")
+    setting_turns = optional_number(grinder.get("settingTurns"), "grinder.settingTurns")
+    if setting_turns is not None and not 0 <= setting_turns <= 1000:
+        raise ValidationError("grinder.settingTurns must be between 0 and 1000.")
     setting_order = optional_number(grinder.get("settingOrder"), "grinder.settingOrder")
     if setting_order is not None and abs(setting_order) > 1_000_000_000:
         raise ValidationError("grinder.settingOrder is outside the accepted range.")
@@ -527,6 +530,7 @@ def validate_and_normalize(
             "brand": brand,
             "model": model,
             "setting": setting,
+            "settingTurns": round(setting_turns, 3) if setting_turns is not None else None,
             "settingOrder": setting_order,
             "color": color,
         },
