@@ -203,6 +203,12 @@ begin
     raise exception 'Administrator permission required';
   end if;
 
+  delete from public.measurement_fractions f
+  using public.measurements m
+  where f.measurement_id = m.id
+    and m.source_app = 'grind-psd'
+    and m.source_record_id = p_source_record_id;
+
   delete from public.measurements
   where source_app = 'grind-psd'
     and source_record_id = p_source_record_id;

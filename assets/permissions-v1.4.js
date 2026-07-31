@@ -57,6 +57,12 @@
     return new Set(ensurePolicyState().map((id) => String(id || "")));
   }
 
+  function canManageLocalRecord(record) {
+    if (isAdminAccount()) return true;
+    if (record?.user?.id === state.store.user.id) return true;
+    return Boolean(state.store.cloudSync?.[record?.id]?.ownedByCurrentAccount);
+  }
+
   function createHiddenRecordId() {
     return Policy.createRecordId({
       userId: state.store?.user?.id || "xx",
@@ -240,7 +246,7 @@
       toast("编辑记录前请先登录。", "error");
       return;
     }
-    if (!isAdminAccount() && record.user?.id !== state.store.user.id) {
+    if (!canManageLocalRecord(record)) {
       toast("普通账户只能编辑自己的本地记录。", "error");
       return;
     }
@@ -326,7 +332,7 @@
   deleteLocalRecord = function deleteLocalRecordV14(id) {
     const record = state.store.records.find((item) => item.id === id);
     if (!record) return;
-    if (!isAdminAccount() && record.user?.id !== state.store.user.id) {
+    if (!canManageLocalRecord(record)) {
       toast("普通账户只能删除自己的本地记录。", "error");
       return;
     }
@@ -373,7 +379,8 @@
           status: "verified",
           recordUpdatedAt: record.updatedAt,
           checkedAt: new Date().toISOString(),
-          verifiedAt: new Date().toISOString()
+          verifiedAt: new Date().toISOString(),
+          ownedByCurrentAccount: !isAdminAccount()
         };
         if (hidden.has(record.id)) return;
         const local = merged.get(record.id);
@@ -407,9 +414,7 @@
       toast("当前离线，无法上传到服务器。", "error");
       return false;
     }
-    const localRecords = state.store.records.filter((record) => {
-      return isAdminAccount() || record.user?.id === state.store.user.id;
-    });
+    const localRecords = state.store.records.filter((record) => canManageLocalRecord(record));
     if (!localRecords.length) {
       toast("没有当前账户可上传的本地记录。", "error");
       return false;
