@@ -36,6 +36,7 @@ jobs:
           node --check assets/edit-entry-v1.7.js
           node --check assets/release-v1.8.js
           node --check assets/edit-sync-v1.8.1.js
+          node --check assets/sieve-protocol-v1.8.2.js
           node tests/test_core.js
           node tests/test_mobile_io.js
           node tests/test_cloud_sync.js
@@ -43,6 +44,7 @@ jobs:
           node tests/test_pair_compare_v15.js
           node tests/test_edit_entry_v17.js
           node tests/test_edit_sync_v181.js
+          node tests/test_sieve_protocol_v182.js
           python3 -m json.tool manifest.webmanifest > /dev/null
           python3 -m json.tool data/standard.json > /dev/null
           python3 -m json.tool data/record.schema.json > /dev/null
@@ -51,8 +53,8 @@ jobs:
           from pathlib import Path
           path = Path("tests/test_static_ui.py")
           text = path.read_text(encoding="utf-8")
-          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.1")
-          text = text.replace('"version": "1.7.0"', '"version": "1.8.1"')
+          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.2")
+          text = text.replace('"version": "1.7.0"', '"version": "1.8.2"')
           path.write_text(text, encoding="utf-8")
           PY
           python3 -m unittest discover -s tests -v
