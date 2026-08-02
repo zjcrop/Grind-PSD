@@ -6,7 +6,7 @@ const path = require("node:path");
 const PermissionsLoader = require("../assets/permissions-v1.4.js");
 const Entry = require("../assets/edit-entry-v1.7.js");
 
-assert.equal(PermissionsLoader.version, "1.7.0");
+assert.equal(PermissionsLoader.version, "1.8.1");
 assert.equal(Entry.version, "1.7.0");
 assert.equal(Entry.ownsRecord({ user: { id: "owner" } }, "owner"), true);
 assert.equal(Entry.ownsRecord({ user: { id: "other" } }, "owner"), false);
@@ -46,13 +46,23 @@ assert.match(entrySource, /同一云端测次/);
 assert.match(entrySource, /recordTableV17/);
 assert.match(entrySource, /没有当前登录账户本人的可上传记录/);
 
+const v181 = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "edit-sync-v1.8.1.js"),
+  "utf8"
+);
+assert.match(v181, /编辑本条记录/);
+assert.match(v181, /switchTab\("measure"\)/);
+assert.match(v181, /partitionUnchangedRecords/);
+assert.match(v181, /正在读取网络样本列表并比对本地内容/);
+
 const worker = fs.readFileSync(path.join(__dirname, "..", "service-worker.js"), "utf8");
-assert.match(worker, /grind-psd-shell-v1\.7\.0/);
+assert.match(worker, /grind-psd-shell-v1\.8\.1/);
 assert.match(worker, /permissions-v1\.4-base\.js/);
 assert.match(worker, /edit-entry-v1\.7\.js/);
+assert.match(worker, /edit-sync-v1\.8\.1\.js/);
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.webmanifest"), "utf8"));
-assert.equal(manifest.version, "1.7.0");
+assert.equal(manifest.version, "1.8.1");
 
 const migration = fs.readFileSync(
   path.join(__dirname, "..", "supabase", "migrations", "20260802_owner_edit_only.sql"),
@@ -64,4 +74,4 @@ assert.match(migration, /Only the record owner may replace this measurement/);
 assert.doesNotMatch(migration, /create policy\s+measurements_update_owner_or_admin/i);
 assert.doesNotMatch(migration, /create policy\s+measurement_fractions_update_owner_or_admin/i);
 
-console.log("Grind-PSD v1.7 owner editing and final-entry tests passed.");
+console.log("Grind-PSD v1.8.1 owner editing and final-entry tests passed.");
