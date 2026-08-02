@@ -7,8 +7,8 @@
     let patched = String(source || "");
     const replacements = [
       [
-        '    if (isAdminAccount()) return true;\n    if (record?.user?.id === state.store.user.id) return true;',
-        '    if (record?.user?.id === state.store.user.id) return true;'
+        '  function canManageLocalRecord(record) {\n    if (isAdminAccount()) return true;\n    if (record?.user?.id === state.store.user.id) return true;\n    return Boolean(state.store.cloudSync?.[record?.id]?.ownedByCurrentAccount);\n  }',
+        '  function canManageLocalRecord(record) {\n    return Boolean(record?.user?.id && record.user.id === state.store.user.id);\n  }'
       ],
       [
         '    if (current && current.user_id !== uid && !isAdminAccount()) {',
@@ -43,6 +43,9 @@
     });
     if (patched.includes('if (isAdminAccount()) return true;')) {
       throw new Error("Grind-PSD permissions v1.7 owner-only edit patch failed.");
+    }
+    if (patched.includes('cloudSync?.[record?.id]?.ownedByCurrentAccount')) {
+      throw new Error("Grind-PSD permissions v1.7 ownership fallback was not removed.");
     }
     return patched;
   }
