@@ -1,7 +1,7 @@
-(function bootstrapGrindPsdPermissionsV17(root) {
+(function bootstrapGrindPsdPermissionsV18(root) {
   "use strict";
 
-  const VERSION = "1.7.0";
+  const VERSION = "1.8.0";
 
   function patchPermissionsSource(source) {
     let patched = String(source || "");
@@ -37,20 +37,31 @@
     ];
     replacements.forEach(([before, after]) => {
       if (!patched.includes(before)) {
-        throw new Error(`Grind-PSD permissions v1.7 patch target missing: ${before.slice(0, 80)}`);
+        throw new Error(`Grind-PSD permissions v1.8 patch target missing: ${before.slice(0, 80)}`);
       }
       patched = patched.replace(before, after);
     });
     if (patched.includes('if (isAdminAccount()) return true;')) {
-      throw new Error("Grind-PSD permissions v1.7 owner-only edit patch failed.");
+      throw new Error("Grind-PSD permissions v1.8 owner-only edit patch failed.");
     }
     if (patched.includes('cloudSync?.[record?.id]?.ownedByCurrentAccount')) {
-      throw new Error("Grind-PSD permissions v1.7 ownership fallback was not removed.");
+      throw new Error("Grind-PSD permissions v1.8 ownership fallback was not removed.");
     }
     return patched;
   }
 
-  const api = Object.freeze({ version: VERSION, patchPermissionsSource });
+  function patchEditEntrySource(source) {
+    let patched = String(source || "");
+    const previous = 'const VERSION = "1.7.0";';
+    const current = 'const VERSION = "1.8.0";';
+    if (patched.includes(previous)) patched = patched.replace(previous, current);
+    if (!patched.includes(current)) {
+      throw new Error("Grind-PSD edit-entry v1.8 version patch failed.");
+    }
+    return patched;
+  }
+
+  const api = Object.freeze({ version: VERSION, patchPermissionsSource, patchEditEntrySource });
   if (typeof module === "object" && module.exports) {
     module.exports = api;
     return;
@@ -71,9 +82,12 @@
   }
 
   const currentUrl = document.currentScript?.src || location.href;
-  const baseUrl = new URL("./permissions-v1.4-base.js?v=1.7.0", currentUrl).href;
-  const editUrl = new URL("./edit-entry-v1.7.js?v=1.7.0", currentUrl).href;
+  const baseUrl = new URL("./permissions-v1.4-base.js?v=1.8.0", currentUrl).href;
+  const editUrl = new URL("./edit-entry-v1.7.js?v=1.8.0", currentUrl).href;
+  const releaseUrl = new URL("./release-v1.8.js?v=1.8.0", currentUrl).href;
   execute(patchPermissionsSource(loadTextSync(baseUrl)), baseUrl);
-  execute(loadTextSync(editUrl), editUrl);
+  execute(patchEditEntrySource(loadTextSync(editUrl)), editUrl);
+  execute(loadTextSync(releaseUrl), releaseUrl);
+  root.GrindPSDPermissionsLoaderV18 = api;
   root.GrindPSDPermissionsLoaderV17 = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
