@@ -100,7 +100,7 @@ const loaderSource = fs.readFileSync(
   "utf8"
 );
 assert.match(loaderSource, /pitchMax: 90/);
-assert.match(loaderSource, /max=\\"90\\"/);
+assert.match(loaderSource, /max="90"/);
 assert.match(loaderSource, /pair-compare-v1\.5\.js/);
 assert.match(loaderSource, /record-policy-core-v1\.4-base\.js/);
 
