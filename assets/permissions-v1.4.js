@@ -61,7 +61,29 @@
     return patched;
   }
 
-  const api = Object.freeze({ version: VERSION, patchPermissionsSource, patchEditEntrySource });
+  function patchEditSyncSource(source) {
+    let patched = String(source || "");
+    if (!patched.includes('const VERSION = "1.8.1";')) {
+      throw new Error("Grind-PSD edit-sync v1.8.1 source version mismatch.");
+    }
+    const before = '  function install() {\n    if (root.__grindPsdEditSyncV181Installed) return;\n    root.__grindPsdEditSyncV181Installed = true;';
+    const after = '  const runtimeRoot = typeof window !== "undefined" ? window : globalThis;\n\n  function install() {\n    if (runtimeRoot.__grindPsdEditSyncV181Installed) return;\n    runtimeRoot.__grindPsdEditSyncV181Installed = true;';
+    if (patched.includes(before)) patched = patched.replace(before, after);
+    if (!patched.includes('const runtimeRoot = typeof window !== "undefined" ? window : globalThis;')) {
+      throw new Error("Grind-PSD edit-sync v1.8.1 runtime root patch failed.");
+    }
+    if (patched.includes('if (root.__grindPsdEditSyncV181Installed)')) {
+      throw new Error("Grind-PSD edit-sync v1.8.1 still references an undefined root binding.");
+    }
+    return patched;
+  }
+
+  const api = Object.freeze({
+    version: VERSION,
+    patchPermissionsSource,
+    patchEditEntrySource,
+    patchEditSyncSource
+  });
   if (typeof module === "object" && module.exports) {
     module.exports = api;
     return;
@@ -89,7 +111,7 @@
   execute(patchPermissionsSource(loadTextSync(baseUrl)), baseUrl);
   execute(patchEditEntrySource(loadTextSync(editUrl)), editUrl);
   execute(loadTextSync(releaseUrl), releaseUrl);
-  execute(loadTextSync(editSyncUrl), editSyncUrl);
+  execute(patchEditSyncSource(loadTextSync(editSyncUrl)), editSyncUrl);
   root.GrindPSDPermissionsLoaderV181 = api;
   root.GrindPSDPermissionsLoaderV18 = api;
   root.GrindPSDPermissionsLoaderV17 = api;
