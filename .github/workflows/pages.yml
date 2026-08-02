@@ -4,20 +4,23 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: grind-psd-pages
+  group: grind-psd-pages-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out main
+      - name: Check out source
         uses: actions/checkout@v4
 
       - name: Validate static application
@@ -44,6 +47,7 @@ jobs:
           python3 -m unittest discover -s tests -v
 
       - name: Prepare publish branch
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -68,6 +72,7 @@ jobs:
           touch "$publish_dir/.nojekyll"
 
       - name: Publish updated site
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
