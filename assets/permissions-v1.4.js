@@ -1,7 +1,7 @@
-(function bootstrapGrindPsdPermissionsV181(root) {
+(function bootstrapGrindPsdPermissionsV182(root) {
   "use strict";
 
-  const VERSION = "1.8.1";
+  const VERSION = "1.8.2";
 
   function patchPermissionsSource(source) {
     let patched = String(source || "");
@@ -37,15 +37,15 @@
     ];
     replacements.forEach(([before, after]) => {
       if (!patched.includes(before)) {
-        throw new Error(`Grind-PSD permissions v1.8.1 patch target missing: ${before.slice(0, 80)}`);
+        throw new Error(`Grind-PSD permissions v1.8.2 patch target missing: ${before.slice(0, 80)}`);
       }
       patched = patched.replace(before, after);
     });
     if (patched.includes('if (isAdminAccount()) return true;')) {
-      throw new Error("Grind-PSD permissions v1.8.1 owner-only edit patch failed.");
+      throw new Error("Grind-PSD permissions v1.8.2 owner-only edit patch failed.");
     }
     if (patched.includes('cloudSync?.[record?.id]?.ownedByCurrentAccount')) {
-      throw new Error("Grind-PSD permissions v1.8.1 ownership fallback was not removed.");
+      throw new Error("Grind-PSD permissions v1.8.2 ownership fallback was not removed.");
     }
     return patched;
   }
@@ -53,10 +53,10 @@
   function patchEditEntrySource(source) {
     let patched = String(source || "");
     const previous = 'const VERSION = "1.7.0";';
-    const current = 'const VERSION = "1.8.1";';
+    const current = 'const VERSION = "1.8.2";';
     if (patched.includes(previous)) patched = patched.replace(previous, current);
     if (!patched.includes(current)) {
-      throw new Error("Grind-PSD edit-entry v1.8.1 version patch failed.");
+      throw new Error("Grind-PSD edit-entry v1.8.2 version patch failed.");
     }
     return patched;
   }
@@ -104,14 +104,17 @@
   }
 
   const currentUrl = document.currentScript?.src || location.href;
-  const baseUrl = new URL("./permissions-v1.4-base.js?v=1.8.1", currentUrl).href;
-  const editUrl = new URL("./edit-entry-v1.7.js?v=1.8.1", currentUrl).href;
-  const releaseUrl = new URL("./release-v1.8.js?v=1.8.1", currentUrl).href;
-  const editSyncUrl = new URL("./edit-sync-v1.8.1.js?v=1.8.1", currentUrl).href;
+  const baseUrl = new URL("./permissions-v1.4-base.js?v=1.8.2", currentUrl).href;
+  const editUrl = new URL("./edit-entry-v1.7.js?v=1.8.2", currentUrl).href;
+  const releaseUrl = new URL("./release-v1.8.js?v=1.8.2", currentUrl).href;
+  const editSyncUrl = new URL("./edit-sync-v1.8.1.js?v=1.8.2", currentUrl).href;
+  const sieveProtocolUrl = new URL("./sieve-protocol-v1.8.2.js?v=1.8.2", currentUrl).href;
   execute(patchPermissionsSource(loadTextSync(baseUrl)), baseUrl);
   execute(patchEditEntrySource(loadTextSync(editUrl)), editUrl);
   execute(loadTextSync(releaseUrl), releaseUrl);
   execute(patchEditSyncSource(loadTextSync(editSyncUrl)), editSyncUrl);
+  execute(loadTextSync(sieveProtocolUrl), sieveProtocolUrl);
+  root.GrindPSDPermissionsLoaderV182 = api;
   root.GrindPSDPermissionsLoaderV181 = api;
   root.GrindPSDPermissionsLoaderV18 = api;
   root.GrindPSDPermissionsLoaderV17 = api;
