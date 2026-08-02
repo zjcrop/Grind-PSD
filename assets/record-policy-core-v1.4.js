@@ -45,4 +45,22 @@
   const responsiveStyle = document.createElement("style");
   responsiveStyle.textContent = ".pair-chart-shell{overflow:hidden!important}#canvasCmpPair2d{min-width:0!important;max-width:100%}";
   document.head.appendChild(responsiveStyle);
+
+  function installFlatSelectionLimit(attempt = 0) {
+    if (window.__grindPsdFlatSelectionLimitInstalled) return;
+    if (!window.__grindPsdPairCompareV15Installed || typeof renderMultiCompare !== "function" || typeof state === "undefined") {
+      if (attempt < 80) setTimeout(() => installFlatSelectionLimit(attempt + 1), 50);
+      return;
+    }
+    window.__grindPsdFlatSelectionLimitInstalled = true;
+    const originalRenderMultiCompare = renderMultiCompare;
+    renderMultiCompare = function renderMultiCompareWithFlatLimit() {
+      originalRenderMultiCompare();
+      const panel = document.getElementById("pairComparePanelV15");
+      if (panel && state.selectedHistoryIds?.size > 4) panel.hidden = true;
+    };
+    if (state.selectedHistoryIds?.size > 1 && state.activeTab === "array3d") renderMultiCompare();
+  }
+
+  setTimeout(() => installFlatSelectionLimit(), 100);
 })();
