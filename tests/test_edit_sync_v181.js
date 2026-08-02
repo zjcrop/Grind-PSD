@@ -7,7 +7,7 @@ const api = require("../assets/edit-sync-v1.8.1.js");
 const PermissionsLoader = require("../assets/permissions-v1.4.js");
 
 assert.equal(api.version, "1.8.1");
-assert.equal(PermissionsLoader.version, "1.8.2");
+assert.equal(PermissionsLoader.version, "1.8.1");
 
 const base = {
   id: "rec-1",
@@ -66,7 +66,7 @@ const editSyncSource = fs.readFileSync(
   "utf8"
 );
 const browserPatchedSource = PermissionsLoader.patchEditSyncSource(editSyncSource);
-assert.match(browserPatchedSource, /const VERSION = "1\.8\.2"/);
+assert.match(browserPatchedSource, /const VERSION = "1\.8\.1"/);
 assert.match(
   browserPatchedSource,
   /const runtimeRoot = typeof window !== "undefined" \? window : globalThis;/
@@ -81,4 +81,4 @@ assert.doesNotMatch(
 );
 assert.doesNotThrow(() => new Function(browserPatchedSource));
 
-console.log("Grind-PSD v1.8.2 edit, upload deduplication, and runtime-root tests passed.");
+console.log("Grind-PSD v1.8.1 edit, upload deduplication, and runtime-root tests passed.");
