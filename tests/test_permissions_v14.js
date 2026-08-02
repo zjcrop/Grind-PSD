@@ -104,14 +104,26 @@ assert.match(loaderSource, /max="90"/);
 assert.match(loaderSource, /pair-compare-v1\.5\.js/);
 assert.match(loaderSource, /record-policy-core-v1\.4-base\.js/);
 
-const permissions = fs.readFileSync(path.join(__dirname, "..", "assets", "permissions-v1.4.js"), "utf8");
-assert.match(permissions, /zj_crop@163\.com/);
-assert.match(permissions, /Cloud\.isSignedIn = \(\) => false/);
-assert.match(permissions, /云端只读核对/);
-assert.match(permissions, /data-edit-local/);
-assert.match(permissions, /data-delete-cloud/);
-assert.match(permissions, /缺失区间按 0% 补全/);
-assert.match(permissions, /replace_measurement_fractions/);
+const permissionsBase = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "permissions-v1.4-base.js"),
+  "utf8"
+);
+assert.match(permissionsBase, /zj_crop@163\.com/);
+assert.match(permissionsBase, /Cloud\.isSignedIn = \(\) => false/);
+assert.match(permissionsBase, /云端只读核对/);
+assert.match(permissionsBase, /data-edit-local/);
+assert.match(permissionsBase, /data-delete-cloud/);
+assert.match(permissionsBase, /缺失区间按 0% 补全/);
+assert.match(permissionsBase, /replace_measurement_fractions/);
+
+const permissionsLoader = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "permissions-v1.4.js"),
+  "utf8"
+);
+assert.match(permissionsLoader, /permissions-v1\.4-base\.js/);
+assert.match(permissionsLoader, /edit-entry-v1\.7\.js/);
+assert.match(permissionsLoader, /current\.user_id !== uid/);
+assert.match(permissionsLoader, /ownerId = uid/);
 
 const migration = fs.readFileSync(
   path.join(__dirname, "..", "supabase", "migrations", "20260731_record_permissions.sql"),
@@ -123,4 +135,4 @@ assert.match(migration, /admin_delete_grind_psd_record/);
 assert.match(migration, /replace_measurement_fractions/);
 assert.match(migration, /zj_crop@163\.com/);
 
-console.log("Grind-PSD v1.5 permission, alignment, ordering, and interactive 3D tests passed.");
+console.log("Grind-PSD v1.7 permission, alignment, ordering, and interactive 3D tests passed.");
