@@ -1,15 +1,47 @@
 {
   "schemaVersion": "4.0.0",
   "standardId": "grind-psd-sieve-v2",
-  "standardVersion": "2.0.0",
-  "title": "Grind-PSD 咖啡研磨六分段筛分标准 v2",
-  "measurementMethod": "manual_sieve_mass_fraction",
+  "standardVersion": "2.1.0",
+  "title": "Grind-PSD 咖啡研磨六分段筛分标准 v2.1",
+  "measurementMethod": "manual_sequential_sieve_mass_fraction",
   "measurementUnit": "gram",
   "comparisonUnit": "mass_percent",
   "principle": "五张筛网产生五份筛上物和一份最终筛下物，共六个质量分段。以全部回收总重为分母计算质量占比。",
   "labelPolicy": {
     "statement": "18 / 24 / 35 / 60 / 80 目为项目原始工具沿用的档位标签；数据库的实际比较边界以 nominalRangeUm 为准。",
     "warning": "不得把本项目的目数标签自动换算为 ASTM E11、ISO 3310 或其他国家标准筛孔径，也不得将不同区间体系混入同一 standardId。"
+  },
+  "operationProtocol": {
+    "status": "Grind-PSD 项目固定操作规程；不宣称等同于 ISO 或 ASTM 的统一筛分方法",
+    "sequence": "逐筛操作",
+    "commonHorizontalMotion": {
+      "motion": "水平往复",
+      "durationSecPerSieve": 20,
+      "frequencyHzApprox": 2,
+      "cyclesPerSieveApprox": 40,
+      "defaultTotalDurationSec": 100
+    },
+    "noTapMeshes": [18, 24, 35],
+    "noTapRule": "18、24、35 目完成水平往复后不得增加敲击。",
+    "fineMeshRelease": {
+      "meshes": [60, 80],
+      "required": true,
+      "timing": "完成每档 20 秒水平往复后",
+      "target": "筛框侧壁",
+      "positions": 4,
+      "tapsPerPosition": 2,
+      "totalTaps": 8,
+      "force": "轻敲且保持一致",
+      "prohibitedTargets": ["筛网面", "筛底", "筛丝"],
+      "requiredStatement": "避免静电吸附、受潮吸附需要敲击侧面，使附着在筛网底部或侧壁的筛下粉落入下一层。"
+    },
+    "abnormalHandling": [
+      "若轻敲后仍存在明显受潮团聚或持续粘附，应记录异常。",
+      "待样品与筛具恢复干燥、环境平衡后重新测量。",
+      "不得通过增加不定次数、加大力度或敲击筛网面强行过筛。",
+      "任何 RDT、抗静电处理或环境调湿措施必须在备注中记录，并在对比测次间保持一致。"
+    ],
+    "comparabilityRule": "筛具、逐筛顺序、水平动作、时长、频率、轻敲位置、次数和力度均应保持一致；方法不同的记录不得直接并入同一趋势判断。"
   },
   "bins": [
     {
@@ -42,7 +74,7 @@
       "nominalRangeUm": "300-500",
       "lowerBoundUm": 300,
       "upperBoundUm": 500,
-      "description": "通过 500 μm 档、留在 300 μm 档的重量。"
+      "description": "通过 500 μm 档、留在 300 μm 档的重量；完成水平往复后执行规定的侧壁轻敲。"
     },
     {
       "id": "mesh80_retained_g",
@@ -50,7 +82,7 @@
       "nominalRangeUm": "180-300",
       "lowerBoundUm": 180,
       "upperBoundUm": 300,
-      "description": "通过 300 μm 档、留在 180 μm 筛网上的重量。"
+      "description": "通过 300 μm 档、留在 180 μm 筛网上的重量；完成水平往复后执行规定的侧壁轻敲。"
     },
     {
       "id": "pan_lt180_g",
@@ -73,7 +105,8 @@
     "durationSec": {
       "required": true,
       "minimum": 1,
-      "maximum": 3600
+      "maximum": 3600,
+      "projectDefault": 100
     },
     "sieveDevice": {
       "required": true
@@ -90,7 +123,7 @@
       "grade": "A",
       "label": "高可比",
       "massBalanceErrorPct": "<=2",
-      "additionalRequirement": "筛分时长和筛具记录完整"
+      "additionalRequirement": "筛具、逐筛时长、动作、60/80 目侧壁轻敲和异常记录完整"
     },
     {
       "grade": "B",
@@ -139,7 +172,17 @@
     {
       "title": "ASTM E11-24 — Woven Wire Test Sieve Cloth and Test Sieves",
       "url": "https://store.astm.org/e0011-24.html",
-      "scope": "金属丝筛布与试验筛技术要求；用于筛具质量参考。"
+      "scope": "金属丝筛布与试验筛技术要求；用于筛具质量参考，不规定本项目的 20 秒与轻敲次数。"
+    },
+    {
+      "title": "ISO 2591-1:1988 — Test sieving, Part 1",
+      "url": "https://www.iso.org/standard/7569.html",
+      "scope": "筛分装置、程序、影响因素和结果报告的一般原则；本项目据此强调动作、时间与报告的一致性。"
+    },
+    {
+      "title": "RETSCH AS 200 tap — horizontal circular motion with vertical taps",
+      "url": "https://www.retsch.com/products/sieving/sieve-shakers/as-200-tap/",
+      "scope": "标准化水平运动与敲击组合的工程实现示例；不作为 Grind-PSD 具体时长和敲击次数的直接标准来源。"
     }
   ]
 }
