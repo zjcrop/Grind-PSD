@@ -38,7 +38,7 @@
 
   const currentUrl = document.currentScript?.src || location.href;
   const baseUrl = new URL("./record-policy-core-v1.4-base.js?v=1.5.0", currentUrl).href;
-  const pairUrl = new URL("./pair-compare-v1.5.js?v=1.5.0", currentUrl).href;
+  const pairUrl = new URL("./pair-compare-v1.5.js?v=1.6.0", currentUrl).href;
   execute(patchInteractiveSource(loadTextSync(baseUrl)), baseUrl);
   execute(loadTextSync(pairUrl), pairUrl);
 

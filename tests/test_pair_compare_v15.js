@@ -3,23 +3,41 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const Pair = require("../assets/pair-compare-v1.5.js");
+const Flat = require("../assets/pair-compare-v1.5.js");
 
-assert.equal(Pair.version, "1.5.0");
-assert.deepEqual(Pair.normalizePair(["a", "b", "a", "c"]), ["a", "b"]);
-assert.deepEqual(Pair.replacePairSelection(["a", "b"], 0, "c"), ["c", "b"]);
-assert.deepEqual(Pair.replacePairSelection(["a", "b"], 1, "c"), ["a", "c"]);
-assert.deepEqual(Pair.replacePairSelection(["a", "b"], 0, "b"), ["b", "a"]);
-assert.deepEqual(Pair.replacePairSelection(["a", "b"], 1, "a"), ["b", "a"]);
-assert.deepEqual(Pair.replacePairSelection(["a"], 0, "b"), ["a"]);
+assert.equal(Flat.version, "1.6.0");
+assert.equal(Flat.MIN_FLAT_RECORDS, 2);
+assert.equal(Flat.MAX_FLAT_RECORDS, 4);
+assert.deepEqual(Flat.normalizeFlatSelection(["a", "b", "a", "c", "d", "e"]), ["a", "b", "c", "d"]);
+assert.deepEqual(Flat.replaceFlatSelection(["a", "b", "c"], 0, "d"), ["d", "b", "c"]);
+assert.deepEqual(Flat.replaceFlatSelection(["a", "b", "c"], 0, "b"), ["b", "a", "c"]);
+assert.deepEqual(Flat.replaceFlatSelection(["a", "b", "c", "d"], 3, "a"), ["d", "b", "c", "a"]);
+assert.deepEqual(Flat.moveFlatSelection(["a", "b", "c"], 1, -1), ["b", "a", "c"]);
+assert.deepEqual(Flat.moveFlatSelection(["a", "b", "c"], 1, 1), ["a", "c", "b"]);
+assert.deepEqual(Flat.appendFlatSelection(["a", "b", "c"], "d"), ["a", "b", "c", "d"]);
+assert.deepEqual(Flat.appendFlatSelection(["a", "b", "c", "d"], "e"), ["a", "b", "c", "d"]);
+assert.deepEqual(Flat.removeFlatSelection(["a", "b", "c"], 1), ["a", "c"]);
+assert.deepEqual(Flat.removeFlatSelection(["a", "b"], 1), ["a", "b"]);
 
 const source = fs.readFileSync(path.join(__dirname, "..", "assets", "pair-compare-v1.5.js"), "utf8");
-assert.match(source, /canvasCmpPair2d/);
-assert.match(source, /data-pair-slot/);
+assert.match(source, /MAX_FLAT_RECORDS = 4/);
+assert.match(source, /平面柱状与曲线对比/);
+assert.match(source, /data-flat-slot/);
+assert.match(source, /data-flat-move/);
+assert.match(source, /data-flat-add/);
+assert.match(source, /data-flat-remove/);
 assert.match(source, /alignPercentageDistributions/);
 assert.match(source, /state\.selectedHistoryIds = new Set/);
-assert.match(source, /无需返回历史记录/);
-assert.match(source, /缺失的区间按 0% 补全/);
-assert.match(source, /records\.length !== 2/);
+assert.match(source, /ctx\.lineTo\(point\.x, point\.y\)/);
+assert.match(source, /ctx\.arc\(point\.x, point\.y/);
+assert.match(source, /柱体与折线颜色均对应/);
+assert.match(source, /records\.length > MAX_FLAT_RECORDS/);
 
-console.log("Grind-PSD v1.5 pair comparison tests passed.");
+const loader = fs.readFileSync(path.join(__dirname, "..", "assets", "record-policy-core-v1.4.js"), "utf8");
+assert.match(loader, /pair-compare-v1\.5\.js\?v=1\.6\.0/);
+
+const worker = fs.readFileSync(path.join(__dirname, "..", "service-worker.js"), "utf8");
+assert.match(worker, /grind-psd-shell-v1\.6\.0/);
+assert.match(worker, /grind-psd-data-v1\.6\.0/);
+
+console.log("Grind-PSD v1.6 flat bar-and-curve comparison tests passed.");
