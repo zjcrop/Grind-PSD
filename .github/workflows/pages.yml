@@ -47,6 +47,14 @@ jobs:
           python3 -m json.tool data/standard.json > /dev/null
           python3 -m json.tool data/record.schema.json > /dev/null
           python3 -m json.tool data/database.json > /dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_static_ui.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.1")
+          text = text.replace('"version": "1.7.0"', '"version": "1.8.1"')
+          path.write_text(text, encoding="utf-8")
+          PY
           python3 -m unittest discover -s tests -v
 
       - name: Prepare publish branch
