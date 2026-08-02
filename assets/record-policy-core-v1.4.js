@@ -41,4 +41,8 @@
   const pairUrl = new URL("./pair-compare-v1.5.js?v=1.5.0", currentUrl).href;
   execute(patchInteractiveSource(loadTextSync(baseUrl)), baseUrl);
   execute(loadTextSync(pairUrl), pairUrl);
+
+  const responsiveStyle = document.createElement("style");
+  responsiveStyle.textContent = ".pair-chart-shell{overflow:hidden!important}#canvasCmpPair2d{min-width:0!important;max-width:100%}";
+  document.head.appendChild(responsiveStyle);
 })();
