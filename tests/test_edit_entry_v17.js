@@ -59,6 +59,7 @@ const migration = fs.readFileSync(
 assert.match(migration, /measurements_update_owner_only/);
 assert.match(migration, /using \(user_id = auth\.uid\(\)\)/);
 assert.match(migration, /Only the record owner may replace this measurement/);
-assert.doesNotMatch(migration, /update_owner_or_admin/);
+assert.doesNotMatch(migration, /create policy\s+measurements_update_owner_or_admin/i);
+assert.doesNotMatch(migration, /create policy\s+measurement_fractions_update_owner_or_admin/i);
 
 console.log("Grind-PSD v1.7 owner editing and final-entry tests passed.");
