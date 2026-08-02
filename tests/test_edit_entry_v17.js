@@ -24,6 +24,8 @@ const basePermissions = fs.readFileSync(
 );
 const patchedPermissions = PermissionsLoader.patchPermissionsSource(basePermissions);
 assert.doesNotMatch(patchedPermissions, /if \(isAdminAccount\(\)\) return true/);
+assert.match(patchedPermissions, /return Boolean\(record\?\.user\?\.id && record\.user\.id === state\.store\.user\.id\)/);
+assert.doesNotMatch(patchedPermissions, /cloudSync\?\.\[record\?\.id\]\?\.ownedByCurrentAccount/);
 assert.match(patchedPermissions, /if \(current && current\.user_id !== uid\)/);
 assert.doesNotMatch(patchedPermissions, /current\.user_id !== uid && !isAdminAccount/);
 assert.match(patchedPermissions, /const ownerId = uid/);
