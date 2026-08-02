@@ -58,11 +58,11 @@ assert.deepEqual(Policy.orderSelectedIds(["a", "b"], []), ["a", "b"]);
 
 const Interactive3D = globalThis.GrindPSDInteractive3D;
 assert.ok(Interactive3D, "interactive 3D core should be exposed in Node tests");
-assert.equal(Interactive3D.version, "1.4.1");
+assert.equal(Interactive3D.version, "1.5.0");
 assert.equal(Interactive3D.normalizeView({ yaw: 100 }).yaw, 75);
 assert.equal(Interactive3D.normalizeView({ yaw: -100 }).yaw, -75);
 assert.equal(Interactive3D.normalizeView({ pitch: 0 }).pitch, 10);
-assert.equal(Interactive3D.normalizeView({ pitch: 90 }).pitch, 70);
+assert.equal(Interactive3D.normalizeView({ pitch: 100 }).pitch, 90);
 assert.equal(Interactive3D.normalizeView({ scale: 0.2 }).scale, 0.65);
 assert.equal(Interactive3D.normalizeView({ scale: 4 }).scale, 2.5);
 assert.ok(Interactive3D.depthVector({ yaw: 30, pitch: 30 }, 5, 100).x > 0);
@@ -77,23 +77,32 @@ assert.equal(pinched.panX, 20);
 assert.equal(pinched.panY, 30);
 assert.equal(Math.round(pinched.yaw), 40);
 
-const policySource = fs.readFileSync(
+const baseSource = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "record-policy-core-v1.4-base.js"),
+  "utf8"
+);
+assert.match(baseSource, /installComparisonOrdering/);
+assert.match(baseSource, /data-compare-order-id/);
+assert.match(baseSource, /dragstart/);
+assert.match(baseSource, /pointerdown/);
+assert.match(baseSource, /state\.selectedHistoryIds = new Set/);
+assert.match(baseSource, /下方 3D 图按此顺序同步重绘/);
+assert.match(baseSource, /installInteractiveMultiRecord3D/);
+assert.match(baseSource, /pinchView/);
+assert.match(baseSource, /addEventListener\("wheel"/);
+assert.match(baseSource, /data-view-reset/);
+assert.match(baseSource, /touch-action:none/);
+assert.match(baseSource, /双指捏合缩放/);
+assert.match(baseSource, /drawMultiRecord3D = interactiveDrawMultiRecord3D/);
+
+const loaderSource = fs.readFileSync(
   path.join(__dirname, "..", "assets", "record-policy-core-v1.4.js"),
   "utf8"
 );
-assert.match(policySource, /installComparisonOrdering/);
-assert.match(policySource, /data-compare-order-id/);
-assert.match(policySource, /dragstart/);
-assert.match(policySource, /pointerdown/);
-assert.match(policySource, /state\.selectedHistoryIds = new Set/);
-assert.match(policySource, /下方 3D 图按此顺序同步重绘/);
-assert.match(policySource, /installInteractiveMultiRecord3D/);
-assert.match(policySource, /pinchView/);
-assert.match(policySource, /addEventListener\("wheel"/);
-assert.match(policySource, /data-view-reset/);
-assert.match(policySource, /touch-action:none/);
-assert.match(policySource, /双指捏合缩放/);
-assert.match(policySource, /drawMultiRecord3D = interactiveDrawMultiRecord3D/);
+assert.match(loaderSource, /pitchMax: 90/);
+assert.match(loaderSource, /max=\\"90\\"/);
+assert.match(loaderSource, /pair-compare-v1\.5\.js/);
+assert.match(loaderSource, /record-policy-core-v1\.4-base\.js/);
 
 const permissions = fs.readFileSync(path.join(__dirname, "..", "assets", "permissions-v1.4.js"), "utf8");
 assert.match(permissions, /zj_crop@163\.com/);
@@ -114,4 +123,4 @@ assert.match(migration, /admin_delete_grind_psd_record/);
 assert.match(migration, /replace_measurement_fractions/);
 assert.match(migration, /zj_crop@163\.com/);
 
-console.log("Grind-PSD v1.4 permission, alignment, ordering, and interactive 3D tests passed.");
+console.log("Grind-PSD v1.5 permission, alignment, ordering, and interactive 3D tests passed.");
