@@ -40,7 +40,7 @@ class StaticUiTests(unittest.TestCase):
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.4.0", service_worker)
+        self.assertIn("grind-psd-shell-v1.7.0", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -289,7 +289,7 @@ class StaticUiTests(unittest.TestCase):
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.4.0"', manifest)
+        self.assertIn('"version": "1.7.0"', manifest)
         self.assertIn('name="application-version" content="1.4.0"', html)
         for asset in (
             "./manifest.webmanifest?v=1.4.0",
@@ -350,7 +350,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.4.0', worker)
+        self.assertIn('grind-psd-shell-v1.7.0', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")

@@ -1,7 +1,7 @@
 "use strict";
 
-const SHELL_CACHE = "grind-psd-shell-v1.6.0";
-const DATA_CACHE = "grind-psd-data-v1.6.0";
+const SHELL_CACHE = "grind-psd-shell-v1.7.0";
+const DATA_CACHE = "grind-psd-data-v1.7.0";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -12,6 +12,8 @@ const APP_SHELL = [
   "./assets/record-policy-core-v1.4-base.js",
   "./assets/pair-compare-v1.5.js",
   "./assets/permissions-v1.4.js",
+  "./assets/permissions-v1.4-base.js",
+  "./assets/edit-entry-v1.7.js",
   "./assets/styles-v5.css",
   "./assets/icon.svg",
   "./assets/icons/icon-192.png",
@@ -65,6 +67,8 @@ self.addEventListener("fetch", (event) => {
     url.pathname.endsWith("/assets/record-policy-core-v1.4-base.js") ||
     url.pathname.endsWith("/assets/pair-compare-v1.5.js") ||
     url.pathname.endsWith("/assets/permissions-v1.4.js") ||
+    url.pathname.endsWith("/assets/permissions-v1.4-base.js") ||
+    url.pathname.endsWith("/assets/edit-entry-v1.7.js") ||
     url.pathname.endsWith("/assets/supabase-sync-v7.2.2.js") ||
     url.pathname.endsWith("/assets/psd-core.js") ||
     url.pathname.endsWith("/assets/styles-v5.css") ||
