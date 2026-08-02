@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - feature/pair-compare-v1-5
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event_name == 'push' || github.head_ref == 'feature/pair-compare-v1-5'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,9 +50,7 @@ jobs:
               if (pair.length !== 2 || !next) return pair;
               const otherSlot = slot === 0 ? 1 : 0;
               if (pair[slot] === next) return pair;
-              if (pair[otherSlot] === next) return slot === 0
-                ? [pair[1], pair[0]]
-                : [pair[1], pair[0]];
+              if (pair[otherSlot] === next) return [pair[1], pair[0]];
               pair[slot] = next;
               return normalizePair(pair);
             }
@@ -295,13 +297,6 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
 
-          def replace_required(path, old, new, count=1):
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              if old not in text:
-                  raise SystemExit(f"Missing expected text in {path}: {old!r}")
-              file.write_text(text.replace(old, new, count), encoding="utf-8")
-
           policy = Path("assets/record-policy-core-v1.4.js")
           text = policy.read_text(encoding="utf-8")
           text = text.replace('pitchMax: 70,', 'pitchMax: 90,', 1)
@@ -342,16 +337,8 @@ jobs:
           workflow = Path(".github/workflows/pages.yml")
           text = workflow.read_text(encoding="utf-8")
           if 'node --check assets/pair-compare-v1.5.js' not in text:
-              text = text.replace(
-                  '          node --check assets/permissions-v1.4.js\n',
-                  '          node --check assets/permissions-v1.4.js\n          node --check assets/pair-compare-v1.5.js\n',
-                  1
-              )
-              text = text.replace(
-                  '          node tests/test_permissions_v14.js\n',
-                  '          node tests/test_permissions_v14.js\n          node tests/test_pair_compare_v15.js\n',
-                  1
-              )
+              text = text.replace('          node --check assets/permissions-v1.4.js\n', '          node --check assets/permissions-v1.4.js\n          node --check assets/pair-compare-v1.5.js\n', 1)
+              text = text.replace('          node tests/test_permissions_v14.js\n', '          node tests/test_permissions_v14.js\n          node tests/test_pair_compare_v15.js\n', 1)
           workflow.write_text(text, encoding="utf-8")
 
           permissions_test = Path("tests/test_permissions_v14.js")
