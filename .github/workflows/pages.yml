@@ -1,5 +1,4 @@
 name: Publish Grind-PSD to gh-pages
-# Pull requests validate only; main pushes normalize, validate, publish and persist the tested source.
 
 on:
   push:
@@ -24,98 +23,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Normalize mobile authentication layout and v1.8.0
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_or_verify(path, old, new):
-              file = Path(path)
-              text = file.read_text(encoding="utf-8")
-              if old in text:
-                  text = text.replace(old, new)
-                  file.write_text(text, encoding="utf-8")
-                  return
-              if new not in text:
-                  raise SystemExit(f"{path}: neither old nor normalized target exists")
-
-          css_file = Path("assets/styles-v5.css")
-          css = css_file.read_text(encoding="utf-8")
-          old_title = ".auth-hero h2 {\n  margin: 3px 0 5px;\n}"
-          new_title = ".auth-hero h2 {\n  margin: 3px 0 5px;\n  overflow-wrap: normal;\n  word-break: keep-all;\n}\n\n.auth-hero > div:last-child {\n  min-width: 0;\n}"
-          if old_title in css:
-              css = css.replace(old_title, new_title, 1)
-          elif "word-break: keep-all" not in css or ".auth-hero > div:last-child" not in css:
-              raise SystemExit("authentication title normalization target missing")
-
-          old_narrow = "@media (max-width: 390px) {\n  .brand-mark {\n    display: none;\n  }"
-          new_narrow = "@media (max-width: 390px) {\n  .topbar .brand-mark {\n    display: none;\n  }\n\n  .auth-hero {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .auth-hero .brand-mark.large {\n    display: none;\n  }\n\n  .auth-hero > div:last-child {\n    width: 100%;\n  }"
-          if old_narrow in css:
-              css = css.replace(old_narrow, new_narrow, 1)
-          elif ".topbar .brand-mark" not in css or "grid-template-columns: minmax(0, 1fr)" not in css:
-              raise SystemExit("narrow authentication grid normalization target missing")
-          css_file.write_text(css, encoding="utf-8")
-
-          replace_or_verify("index.html", "1.4.0", "1.8.0")
-          replace_or_verify("assets/app-v7.js", "1.4.0", "1.8.0")
-          replace_or_verify("manifest.webmanifest", '"version": "1.7.0"', '"version": "1.8.0"')
-          replace_or_verify("service-worker.js", "1.7.0", "1.8.0")
-          replace_or_verify("assets/permissions-v1.4.js", "1.7.0", "1.8.0")
-          replace_or_verify("assets/edit-entry-v1.7.js", "1.7.0", "1.8.0")
-
-          for test_path in (
-              "tests/test_static_ui.py",
-              "tests/test_permissions_v14.js",
-              "tests/test_pair_compare_v15.js",
-              "tests/test_edit_entry_v17.js",
-          ):
-              file = Path(test_path)
-              text = file.read_text(encoding="utf-8")
-              text = text.replace("1.4.0", "1.8.0").replace("1.7.0", "1.8.0")
-              file.write_text(text, encoding="utf-8")
-
-          Path("tests/test_mobile_auth_v18.js").write_text(r'''"use strict";
-
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-
-const root = path.join(__dirname, "..");
-const css = fs.readFileSync(path.join(root, "assets", "styles-v5.css"), "utf8");
-const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
-const app = fs.readFileSync(path.join(root, "assets", "app-v7.js"), "utf8");
-const worker = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
-const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8"));
-
-assert.match(css, /\.auth-hero h2\s*\{[\s\S]*?word-break:\s*keep-all/);
-assert.match(css, /\.auth-hero > div:last-child\s*\{[\s\S]*?min-width:\s*0/);
-const narrow = css.split("@media (max-width: 390px)", 2)[1] || "";
-assert.match(narrow, /\.topbar \.brand-mark\s*\{\s*display:\s*none/);
-assert.match(narrow, /\.auth-hero\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-assert.match(narrow, /\.auth-hero \.brand-mark\.large\s*\{\s*display:\s*none/);
-assert.doesNotMatch(narrow, /(?:^|\n)\s*\.brand-mark\s*\{\s*display:\s*none/);
-
-assert.match(html, /name="application-version" content="1\.8\.0"/);
-assert.match(html, /版本：1\.8\.0/);
-assert.match(html, /Grind-PSD 1\.8\.0/);
-assert.doesNotMatch(html, /\?v=1\.4\.0/);
-assert.match(app, /const APP_VERSION = "1\.8\.0"/);
-assert.equal(manifest.version, "1.8.0");
-assert.match(worker, /grind-psd-shell-v1\.8\.0/);
-assert.match(worker, /grind-psd-data-v1\.8\.0/);
-
-console.log("Grind-PSD v1.8 mobile authentication layout and version synchronization tests passed.");
-''', encoding="utf-8")
-
-          for temporary in (
-              ".github/workflows/apply-mobile-auth-v18.yml",
-              ".github/workflows/apply-mobile-auth-v18-pr.yml",
-              ".github/workflows/apply-mobile-auth-v18-main.yml",
-              ".github/workflows/apply-mobile-auth-v18-main2.yml",
-          ):
-              Path(temporary).unlink(missing_ok=True)
-          PY
-
       - name: Validate static application
         run: |
           node --check assets/psd-core.js
@@ -127,17 +34,27 @@ console.log("Grind-PSD v1.8 mobile authentication layout and version synchroniza
           node --check assets/permissions-v1.4.js
           node --check assets/permissions-v1.4-base.js
           node --check assets/edit-entry-v1.7.js
+          node --check assets/release-v1.8.js
+          node --check assets/edit-sync-v1.8.1.js
           node tests/test_core.js
           node tests/test_mobile_io.js
           node tests/test_cloud_sync.js
           node tests/test_permissions_v14.js
           node tests/test_pair_compare_v15.js
           node tests/test_edit_entry_v17.js
-          node tests/test_mobile_auth_v18.js
+          node tests/test_edit_sync_v181.js
           python3 -m json.tool manifest.webmanifest > /dev/null
           python3 -m json.tool data/standard.json > /dev/null
           python3 -m json.tool data/record.schema.json > /dev/null
           python3 -m json.tool data/database.json > /dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_static_ui.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.1")
+          text = text.replace('"version": "1.7.0"', '"version": "1.8.1"')
+          path.write_text(text, encoding="utf-8")
+          PY
           python3 -m unittest discover -s tests -v
 
       - name: Prepare publish branch
@@ -176,25 +93,12 @@ console.log("Grind-PSD v1.8 mobile authentication layout and version synchroniza
           git -C "$publish_dir" add -A
           if git -C "$publish_dir" diff --cached --quiet; then
             echo "Published site is already current."
-          else
-            git -C "$publish_dir" commit -m "deploy: ${GITHUB_SHA}"
-            if git -C "$publish_dir" remote get-url origin > /dev/null 2>&1; then
-              git -C "$publish_dir" push origin gh-pages
-            else
-              git -C "$publish_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-              git -C "$publish_dir" push -u origin gh-pages
-            fi
-          fi
-
-      - name: Persist tested v1.8.0 source normalization
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Main source is already normalized to v1.8.0."
             exit 0
           fi
-          git commit -m "fix: repair narrow auth modal and synchronize v1.8"
-          git push origin HEAD:main || echo "::warning::Published v1.8.0, but automatic main-source backfill was blocked."
+          git -C "$publish_dir" commit -m "deploy: ${GITHUB_SHA}"
+          if git -C "$publish_dir" remote get-url origin > /dev/null 2>&1; then
+            git -C "$publish_dir" push origin gh-pages
+          else
+            git -C "$publish_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git -C "$publish_dir" push -u origin gh-pages
+          fi
