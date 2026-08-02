@@ -38,11 +38,29 @@
 
   const currentUrl = document.currentScript?.src || location.href;
   const baseUrl = new URL("./record-policy-core-v1.4-base.js?v=1.5.0", currentUrl).href;
-  const pairUrl = new URL("./pair-compare-v1.5.js?v=1.5.0", currentUrl).href;
+  const pairUrl = new URL("./pair-compare-v1.5.js?v=1.6.0", currentUrl).href;
   execute(patchInteractiveSource(loadTextSync(baseUrl)), baseUrl);
   execute(loadTextSync(pairUrl), pairUrl);
 
   const responsiveStyle = document.createElement("style");
   responsiveStyle.textContent = ".pair-chart-shell{overflow:hidden!important}#canvasCmpPair2d{min-width:0!important;max-width:100%}";
   document.head.appendChild(responsiveStyle);
+
+  function installFlatSelectionLimit(attempt = 0) {
+    if (window.__grindPsdFlatSelectionLimitInstalled) return;
+    if (!window.__grindPsdPairCompareV15Installed || typeof renderMultiCompare !== "function" || typeof state === "undefined") {
+      if (attempt < 80) setTimeout(() => installFlatSelectionLimit(attempt + 1), 50);
+      return;
+    }
+    window.__grindPsdFlatSelectionLimitInstalled = true;
+    const originalRenderMultiCompare = renderMultiCompare;
+    renderMultiCompare = function renderMultiCompareWithFlatLimit() {
+      originalRenderMultiCompare();
+      const panel = document.getElementById("pairComparePanelV15");
+      if (panel && state.selectedHistoryIds?.size > 4) panel.hidden = true;
+    };
+    if (state.selectedHistoryIds?.size > 1 && state.activeTab === "array3d") renderMultiCompare();
+  }
+
+  setTimeout(() => installFlatSelectionLimit(), 100);
 })();
