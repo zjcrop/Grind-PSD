@@ -1,9 +1,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const api = require("../assets/edit-sync-v1.8.1.js");
+const PermissionsLoader = require("../assets/permissions-v1.4.js");
 
 assert.equal(api.version, "1.8.1");
+assert.equal(PermissionsLoader.version, "1.8.2");
 
 const base = {
   id: "rec-1",
@@ -57,4 +61,24 @@ assert.deepEqual(partition.upload.map((record) => record.id), ["rec-2"]);
 assert.equal(api.ownsRecord(base, "u1"), true);
 assert.equal(api.ownsRecord(base, "u2"), false);
 
-console.log("Grind-PSD v1.8.1 edit and upload deduplication tests passed.");
+const editSyncSource = fs.readFileSync(
+  path.join(__dirname, "..", "assets", "edit-sync-v1.8.1.js"),
+  "utf8"
+);
+const browserPatchedSource = PermissionsLoader.patchEditSyncSource(editSyncSource);
+assert.match(browserPatchedSource, /const VERSION = "1\.8\.2"/);
+assert.match(
+  browserPatchedSource,
+  /const runtimeRoot = typeof window !== "undefined" \? window : globalThis;/
+);
+assert.match(
+  browserPatchedSource,
+  /if \(runtimeRoot\.__grindPsdEditSyncV181Installed\) return;/
+);
+assert.doesNotMatch(
+  browserPatchedSource,
+  /if \(root\.__grindPsdEditSyncV181Installed\) return;/
+);
+assert.doesNotThrow(() => new Function(browserPatchedSource));
+
+console.log("Grind-PSD v1.8.2 edit, upload deduplication, and runtime-root tests passed.");
