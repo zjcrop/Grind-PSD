@@ -1,4 +1,5 @@
 name: Publish Grind-PSD to gh-pages
+# Pull requests validate only; main pushes validate and publish.
 
 on:
   push:
