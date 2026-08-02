@@ -37,7 +37,7 @@ const loader = fs.readFileSync(path.join(__dirname, "..", "assets", "record-poli
 assert.match(loader, /pair-compare-v1\.5\.js\?v=1\.6\.0/);
 
 const worker = fs.readFileSync(path.join(__dirname, "..", "service-worker.js"), "utf8");
-assert.match(worker, /grind-psd-shell-v1\.8\.1/);
-assert.match(worker, /grind-psd-data-v1\.8\.1/);
+assert.match(worker, /grind-psd-shell-v1\.8\.2/);
+assert.match(worker, /grind-psd-data-v1\.8\.2/);
 
-console.log("Grind-PSD v1.6 flat bar-and-curve comparison tests passed under v1.8.1 shell.");
+console.log("Grind-PSD v1.6 flat bar-and-curve comparison tests passed under v1.8.2 shell.");
