@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/zjcrop/Grind-PSD/main/provider/schemas/grinder-reference.schema.json",
+  "title": "Grind-PSD conservative grinder reference catalog",
+  "type": "object",
+  "required": ["contract", "dataVersion", "precisionPolicy", "source", "grinders"],
+  "properties": {
+    "contract": {"const": "grinder-reference/1.0"},
+    "dataVersion": {"type": "string"},
+    "precisionPolicy": {
+      "type": "object",
+      "required": ["exactSettingProhibited", "minimumEligibleSamplesForNumericRange", "acceptedQualityGrades", "mandatoryConsumerLabel"],
+      "properties": {
+        "exactSettingProhibited": {"const": true},
+        "minimumEligibleSamplesForNumericRange": {"type": "integer", "minimum": 3},
+        "acceptedQualityGrades": {"type": "array", "items": {"enum": ["A", "B"]}},
+        "mandatoryConsumerLabel": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {"type": "object"},
+    "grinders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["grinderId", "brand", "model", "confidence", "precisionPolicy", "sampleCount", "eligibleSampleCount", "numericReferenceAllowed", "points", "warnings"],
+        "properties": {
+          "grinderId": {"type": "string"},
+          "brand": {"type": "string"},
+          "model": {"type": "string"},
+          "confidence": {"enum": ["high", "medium", "low", "insufficient"]},
+          "precisionPolicy": {"const": "approximate-range-only"},
+          "sampleCount": {"type": "integer", "minimum": 0},
+          "eligibleSampleCount": {"type": "integer", "minimum": 0},
+          "numericReferenceAllowed": {"type": "boolean"},
+          "points": {"type": "array"},
+          "warnings": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}
