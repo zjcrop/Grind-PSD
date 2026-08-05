@@ -1,0 +1,9 @@
+{
+  "provider": "grind-psd",
+  "type": "dataset-and-local-reference-engine",
+  "contract": "grinder-reference/1.0",
+  "manifestUrl": "https://raw.githubusercontent.com/zjcrop/Grind-PSD/main/provider/releases/latest.json",
+  "required": false,
+  "updatePolicy": "background-check-stage-verify-atomic-activate",
+  "failurePolicy": "retain-last-known-good-and-hide-numeric-reference-when-insufficient"
+}
