@@ -15,6 +15,21 @@ function makeRecord(order, shares, options = {}) {
   });
 }
 
+function makeLegacyRecord(order, shares, model = "Legacy Burr") {
+  const bins = [
+    ...Core.SIEVES.slice(0, 4),
+    { key: "pan80_lt300_g", apertureUm: null, label: "低于60目旧合并档" }
+  ];
+  return Core.createRecord({
+    user: { id: "tester", name: "Tester" },
+    grinder: { brand: "Test", model, setting: String(order), settingOrder: order },
+    sample: { doseG: shares.reduce((sum, value) => sum + value, 0), durationSec: 60, sieveDevice: "legacy test sieve" },
+    weightsGrams: Object.fromEntries([...Core.SIEVES.slice(0, 4).map((sieve, index) => [sieve.key, shares[index]]), ["pan80_lt300_g", shares[4]]]),
+    sieveProfile: { id: "grind-psd-sieve-v1", custom: false, legacy: true, bins },
+    createdAt: `2026-09-0${order}T00:00:00.000Z`
+  });
+}
+
 const regular = [
   makeRecord(1, [5, 20, 35, 25, 10, 5]),
   makeRecord(2, [3, 16, 33, 28, 13, 7]),
@@ -41,22 +56,37 @@ assert.equal(duplicateReport.groups[2].records.length, 2);
 assert.ok(duplicateReport.groups[2].repeatSpread < 1e-10);
 assert.equal(duplicateReport.grade, "M1");
 
-const legacyProfile = {
-  id: "grind-psd-sieve-v1", custom: false, legacy: true,
-  bins: [...Core.SIEVES.slice(0, 4), { key: "pan80_lt300_g", apertureUm: null }]
-};
-const legacy = makeRecord(6, [1, 3, 8, 2, 1, 0], { profile: legacyProfile });
-const excluded = Diagnostics.diagnose([...regular, legacy], "Test", "Burr A");
-assert.equal(excluded.records, 6);
-assert.equal(excluded.formalRecords, 5);
-assert.equal(excluded.excludedRecords, 1);
+const legacy = makeLegacyRecord(6, [1, 3, 8, 2, 1], "Burr A");
+const converted = Diagnostics.diagnose([...regular, legacy], "Test", "Burr A");
+assert.equal(converted.records, 6);
+assert.equal(converted.formalRecords, 6);
+assert.equal(converted.legacyRecords, 1);
+assert.equal(converted.inferredRecords, 1);
+assert.equal(converted.excludedRecords, 0);
+assert.equal(converted.groups.at(-1).vector.length, 6);
 assert.equal(Diagnostics.isCanonicalSixBin(legacy), false);
+
+const legacyOnly = Diagnostics.diagnose([
+  makeLegacyRecord(1, [1, 4, 7, 2, 1]),
+  makeLegacyRecord(3, [1, 3, 8, 2, 1])
+], "Test", "Legacy Burr");
+assert.equal(legacyOnly.formalRecords, 2);
+assert.equal(legacyOnly.legacyRecords, 2);
+assert.equal(legacyOnly.groups.length, 2);
+assert.equal(legacyOnly.predictions.length, 3);
+assert.match(legacyOnly.evidence.join(" "), /旧格式记录/);
+
+const partialRecord = makeRecord(3, [2, 11, 29, 31, 17, 10]);
+delete partialRecord.weightsGrams.mesh80_retained_g;
+const partialReport = Diagnostics.diagnose([...regular, partialRecord], "Test", "Burr A");
+assert.equal(partialReport.inferredRecords, 1);
+assert.match(partialReport.evidence.join(" "), /模型插补/);
 
 const poorQuality = makeRecord(8, [1, 8, 24, 32, 21, 14]);
 poorQuality.metrics.quality.grade = "D";
 const qualityReport = Diagnostics.diagnose([...regular, poorQuality], "Test", "Burr A");
-assert.equal(qualityReport.qualityRejectedRecords, 1);
-assert.equal(qualityReport.formalRecords, 5);
+assert.equal(qualityReport.qualityAdjustedRecords, 1);
+assert.equal(qualityReport.formalRecords, 6);
 
 const zigzag = [
   makeRecord(1, [1, 2, 3, 4, 20, 70]),
