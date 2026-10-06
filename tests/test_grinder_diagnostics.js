@@ -8,7 +8,7 @@ function makeRecord(order, shares, options = {}) {
   return Core.createRecord({
     user: { id: "tester", name: "Tester" },
     grinder: { brand: "Test", model: "Burr A", setting: String(order), settingOrder: order },
-    sample: { doseG: 10, durationSec: 60, sieveDevice: "test sieve" },
+    sample: { doseG: shares.reduce((sum, value) => sum + value, 0), durationSec: 60, sieveDevice: "test sieve" },
     weightsGrams: Object.fromEntries(Core.SIEVES.map((sieve, index) => [sieve.key, shares[index]])),
     sieveProfile: options.profile,
     createdAt: `2026-10-0${Math.min(order, 6)}T00:00:00.000Z`
@@ -26,7 +26,7 @@ const report = Diagnostics.diagnose(regular, "Test", "Burr A");
 assert.equal(report.formalRecords, 5);
 assert.equal(report.groups.length, 5);
 assert.equal(report.direction, "刻度增大时整体趋细");
-assert.equal(report.grade, "M1");
+assert.equal(report.grade, "M2");
 assert.equal(report.bestObserved.setting, "2");
 assert.equal(report.nextTest.order, 1.5);
 assert.equal(report.candidates[0].pct.length, 6);
@@ -35,7 +35,8 @@ assert.ok(Math.abs(report.candidates[2].pct.reduce((sum, value) => sum + value, 
 const duplicate = makeRecord(3, [2, 11, 29, 31, 17, 10]);
 const duplicateReport = Diagnostics.diagnose([...regular, duplicate], "Test", "Burr A");
 assert.equal(duplicateReport.groups[2].records.length, 2);
-assert.equal(duplicateReport.groups[2].repeatSpread, 0);
+assert.ok(duplicateReport.groups[2].repeatSpread < 1e-10);
+assert.equal(duplicateReport.grade, "M1");
 
 const legacyProfile = {
   id: "grind-psd-sieve-v1", custom: false, legacy: true,
@@ -47,6 +48,12 @@ assert.equal(excluded.records, 6);
 assert.equal(excluded.formalRecords, 5);
 assert.equal(excluded.excludedRecords, 1);
 assert.equal(Diagnostics.isCanonicalSixBin(legacy), false);
+
+const poorQuality = makeRecord(8, [1, 8, 24, 32, 21, 14]);
+poorQuality.metrics.quality.grade = "D";
+const qualityReport = Diagnostics.diagnose([...regular, poorQuality], "Test", "Burr A");
+assert.equal(qualityReport.qualityRejectedRecords, 1);
+assert.equal(qualityReport.formalRecords, 5);
 
 const zigzag = [
   makeRecord(1, [1, 2, 3, 4, 20, 70]),

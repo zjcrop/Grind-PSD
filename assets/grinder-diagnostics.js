@@ -92,8 +92,10 @@
 
   function diagnose(records, brand, model) {
     const all = records.filter((record) => record.grinder?.brand === brand && record.grinder?.model === model);
-    const formal = all.filter(isCanonicalSixBin);
-    const excluded = all.length - formal.length;
+    const canonical = all.filter(isCanonicalSixBin);
+    const qualityRejected = canonical.filter((record) => record.metrics?.quality?.grade === "D").length;
+    const formal = canonical.filter((record) => record.metrics?.quality?.grade !== "D");
+    const excluded = all.length - canonical.length;
     const unorderable = formal.filter((record) => finite(record.grinder?.settingOrder) === null).length;
     const groups = settingGroups(formal);
     const k = groups.length;
@@ -120,12 +122,18 @@
     }
     const looError = looErrors.length ? looErrors.reduce((sum, value) => sum + value, 0) / looErrors.length : null;
     const noiseRatio = meanNeighborShift && repeatNoise !== null ? repeatNoise / meanNeighborShift : null;
+    const repeatedSettingCount = groups.filter((group) => group.vectors.length > 1).length;
+    const protocolKeys = new Set(formal.map((record) => [
+      record.sample?.sieveDevice || "未填写筛具",
+      record.sample?.method || "未填写方法",
+      finite(record.sample?.durationSec) ?? "未填写时长"
+    ].join("|")));
 
     let grade = "M3";
     let gradeLabel = "数据不足";
     if (k >= 4) {
       if (directionConsistency >= 0.7 && (looError === null || looError <= 0.35) && (noiseRatio === null || noiseRatio <= 0.65)) {
-        grade = k >= 5 && directionConsistency >= 0.8 && (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
+        grade = k >= 5 && repeatedSettingCount > 0 && directionConsistency >= 0.8 && (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
           ? "M1" : "M2";
         gradeLabel = grade === "M1" ? "稳定可建模" : "基本可建模";
       } else {
@@ -159,17 +167,19 @@
 
     const evidence = [
       `匹配该机型共 ${all.length} 条本地记录，其中 ${formal.length} 条符合标准六分段；${excluded} 条旧档或自定义筛网记录未进入正式模型。`,
+      qualityRejected ? `${qualityRejected} 条 D 级质量记录因质量回收偏差过大，未进入正式模型。` : "未发现因质量回收偏差过大而排除的 D 级测次。",
       `${k} 个有序刻度点，${formal.length - unorderable} 条测次有可用排序值；${unorderable} 条缺少排序值而未进入刻度曲线。`,
       k > 1 ? `${direction}；相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。` : "至少需要两个不同且可排序的刻度点才能判断粒径变化方向。",
-      repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `同刻度重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。`,
+      repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `有 ${repeatedSettingCount} 个刻度具备重复测次；平均重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。`,
+      protocolKeys.size > 1 ? `测量条件覆盖 ${protocolKeys.size} 种筛具/方法/时长组合，跨条件差异可能混入刻度效应。` : "标准筛具、筛分方法和时长未见多个组合造成的明显口径差异。",
       looError === null ? "留一插值误差尚不可计算（需要至少 3 个有序刻度点）。" : `留一交叉验证平均误差 ${looError.toFixed(2)} 个筛分档。`
     ];
 
     return {
       brand, model, grade, gradeLabel, records: all.length, formalRecords: formal.length,
-      excludedRecords: excluded, unorderableRecords: unorderable, groups,
+      excludedRecords: excluded, qualityRejectedRecords: qualityRejected, unorderableRecords: unorderable, groups,
       candidates: mediumCandidates, bestObserved, nextTest, direction,
-      directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, evidence,
+      directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount, evidence,
       bins: BIN_LABELS,
       targetNotice: "本页没有把筛分分布等同于冲煮质量。“中等手冲”尚无本项目杯测校准目标；候选值只按 300–800 μm 主体占比与两端尾部作探索性排序，不代表已验证的最佳萃取刻度。",
       modelNotice: "M1–M4 为本项目内部诊断规则（刻度覆盖、方向一致性、留一误差、重复测量噪声），不是行业认证等级。仅在实测刻度范围内线性插值；不外推。"
