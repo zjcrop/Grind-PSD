@@ -31,6 +31,9 @@ assert.equal(report.bestObserved.setting, "2");
 assert.equal(report.nextTest.order, 1.5);
 assert.equal(report.candidates[0].pct.length, 6);
 assert.ok(Math.abs(report.candidates[2].pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8);
+assert.equal(report.predictions.length, 12);
+assert.ok(report.predictions.every((point) => Math.abs(point.pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8));
+assert.ok(report.predictions.every((point) => point.intervals.every((range) => range.low >= 0 && range.high <= 100 && range.low <= range.high)));
 
 const duplicate = makeRecord(3, [2, 11, 29, 31, 17, 10]);
 const duplicateReport = Diagnostics.diagnose([...regular, duplicate], "Test", "Burr A");
@@ -62,6 +65,10 @@ const zigzag = [
   makeRecord(4, [45, 25, 15, 8, 5, 2])
 ];
 assert.equal(Diagnostics.diagnose(zigzag, "Test", "Burr A").grade, "M4");
-assert.equal(Diagnostics.diagnose(regular.slice(0, 2), "Test", "Burr A").grade, "M3");
+const sparse = Diagnostics.diagnose(regular.slice(0, 2), "Test", "Burr A");
+assert.equal(sparse.grade, "M2");
+assert.equal(sparse.predictions.length, 3);
+assert.equal(sparse.looError, null);
+assert.equal(Diagnostics.diagnose(regular.slice(0, 1), "Test", "Burr A").predictions.length, 0);
 
 console.log("grinder diagnostics tests passed");

@@ -90,6 +90,48 @@
     return null;
   }
 
+  function seededNormal(seedText) {
+    let state = 2166136261;
+    for (const char of seedText) state = Math.imul(state ^ char.charCodeAt(0), 16777619) >>> 0;
+    const random = () => {
+      state = (state + 0x6D2B79F5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    let spare = null;
+    return () => {
+      if (spare !== null) { const value = spare; spare = null; return value; }
+      const u = Math.max(random(), 1e-12);
+      const v = random();
+      const radius = Math.sqrt(-2 * Math.log(u));
+      spare = radius * Math.sin(2 * Math.PI * v);
+      return radius * Math.cos(2 * Math.PI * v);
+    };
+  }
+
+  function logisticNormalInterval(mean, sigma, seedText) {
+    const normal = seededNormal(seedText);
+    const draws = BIN_KEYS.map(() => []);
+    for (let draw = 0; draw < 800; draw += 1) {
+      const logits = mean.map((share, i) => {
+        const p = Math.max(share, 1e-5);
+        const logitSd = sigma[i] / Math.max(p * (1 - p), 0.015);
+        return Math.log(p) + normal() * Math.min(logitSd, 2.5);
+      });
+      const max = Math.max(...logits);
+      const raw = logits.map((value) => Math.exp(value - max));
+      const total = raw.reduce((sum, value) => sum + value, 0);
+      raw.forEach((value, i) => draws[i].push(value / total));
+    }
+    const quantile = (values, q) => {
+      const sorted = values.sort((a, b) => a - b);
+      return sorted[Math.floor((sorted.length - 1) * q)];
+    };
+    return draws.map((values) => ({ low: quantile(values, 0.1), high: quantile(values, 0.9) }));
+  }
+
   function diagnose(records, brand, model) {
     const all = records.filter((record) => record.grinder?.brand === brand && record.grinder?.model === model);
     const canonical = all.filter(isCanonicalSixBin);
@@ -116,9 +158,13 @@
     const direction = increases > decreases ? "刻度增大时整体趋细" : decreases > increases ? "刻度增大时整体趋粗" : "方向暂不明确";
 
     const looErrors = [];
+    const looResiduals = [];
     for (let i = 1; i < k - 1; i += 1) {
       const predicted = predictAt(groups, groups[i].order, i);
-      if (predicted) looErrors.push(ordinalWasserstein(predicted, groups[i].vector));
+      if (predicted) {
+        looErrors.push(ordinalWasserstein(predicted, groups[i].vector));
+        looResiduals.push(predicted.map((share, bin) => groups[i].vector[bin] - share));
+      }
     }
     const looError = looErrors.length ? looErrors.reduce((sum, value) => sum + value, 0) / looErrors.length : null;
     const noiseRatio = meanNeighborShift && repeatNoise !== null ? repeatNoise / meanNeighborShift : null;
@@ -130,8 +176,11 @@
     ].join("|")));
 
     let grade = "M3";
-    let gradeLabel = "数据不足";
-    if (k >= 4) {
+    let gradeLabel = "仅有单点，暂不能拟合刻度响应";
+    if (k >= 2 && k < 4) {
+      grade = "M2";
+      gradeLabel = "低数据量概率预测";
+    } else if (k >= 4) {
       if (directionConsistency >= 0.7 && (looError === null || looError <= 0.35) && (noiseRatio === null || noiseRatio <= 0.65)) {
         grade = k >= 5 && repeatedSettingCount > 0 && directionConsistency >= 0.8 && (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
           ? "M1" : "M2";
@@ -154,22 +203,65 @@
     const bestObserved = [...mediumCandidates].sort((a, b) =>
       (b.middlePct - 0.5 * b.tailPct) - (a.middlePct - 0.5 * a.tailPct)
     )[0] || null;
+    const looSigma = BIN_KEYS.map((_, bin) => looResiduals.length
+      ? Math.sqrt(looResiduals.reduce((sum, residual) => sum + residual[bin] ** 2, 0) / looResiduals.length)
+      : 0);
+    const repeatSigma = BIN_KEYS.map((_, bin) => {
+      const deviations = groups.flatMap((group) => group.vectors.length > 1
+        ? group.vectors.map((vector) => vector[bin] - group.vector[bin])
+        : []);
+      return deviations.length
+        ? Math.sqrt(deviations.reduce((sum, value) => sum + value ** 2, 0) / deviations.length)
+        : 0;
+    });
+    const gaps = groups.slice(1).map((group, i) => ({ width: group.order - groups[i].order, left: groups[i], right: group }));
+    const sortedGapWidths = gaps.map((gap) => gap.width).sort((a, b) => a - b);
+    const typicalGap = sortedGapWidths.length ? sortedGapWidths[Math.floor(sortedGapWidths.length / 2)] : null;
+    const baseUncertainty = k < 3 ? 0.10 : k === 3 ? 0.075 : k === 4 ? 0.055 : 0.04;
+    const predictions = [];
+    gaps.forEach(({ width, left, right }) => {
+      [0.25, 0.5, 0.75].forEach((t) => {
+        const order = left.order + width * t;
+        const vector = interpolate(left, right, order);
+        const gapInflation = typicalGap ? Math.min(2.5, Math.sqrt(width / typicalGap)) : 1;
+        const curvature = 2 * Math.sqrt(t * (1 - t));
+        const sigma = BIN_KEYS.map((_, bin) => Math.sqrt(
+          ((1 - t) * repeatSigma[bin]) ** 2 + (t * repeatSigma[bin]) ** 2 +
+          (Math.max(baseUncertainty, looSigma[bin]) * curvature * gapInflation) ** 2
+        ) * (protocolKeys.size > 1 ? 1.2 : 1));
+        const intervals = logisticNormalInterval(vector, sigma, `${brand}/${model}/${left.order}/${right.order}/${t}`);
+        predictions.push({
+          order, fraction: t, left: left.order, right: right.order,
+          pct: vector.map((share) => share * 100),
+          intervals: intervals.map((range) => ({ low: range.low * 100, high: range.high * 100 })),
+          middlePct: (vector[2] + vector[3]) * 100,
+          tailPct: (vector[0] + vector[5]) * 100,
+          uncertaintyPct: sigma.reduce((sum, value) => sum + value, 0) / sigma.length * 100
+        });
+      });
+    });
+    const candidatePool = predictions;
+    const scoreOf = (point) => point.middlePct - 0.5 * point.tailPct;
+    const bestPrediction = [...candidatePool].sort((a, b) => scoreOf(b) - scoreOf(a))[0] || null;
+    const bestScore = bestPrediction ? scoreOf(bestPrediction) : null;
+    const candidateBand = bestPrediction
+      ? candidatePool.filter((point) => scoreOf(point) >= bestScore - 5)
+      : [];
+    const predictedRange = candidateBand.length ? {
+      low: Math.min(...candidateBand.map((point) => point.order)),
+      high: Math.max(...candidateBand.map((point) => point.order))
+    } : null;
     let nextTest = null;
-    if (k >= 2) {
-      const gaps = groups.slice(1).map((group, i) => ({
-        order: (group.order + groups[i].order) / 2,
-        width: group.order - groups[i].order,
-        left: groups[i].order,
-        right: group.order
-      })).sort((a, b) => b.width - a.width);
-      if (gaps[0]?.width > 0) nextTest = gaps[0];
+    if (gaps.length) {
+      const widest = [...gaps].sort((a, b) => b.width - a.width)[0];
+      nextTest = { order: (widest.left.order + widest.right.order) / 2, width: widest.width, left: widest.left.order, right: widest.right.order };
     }
 
     const evidence = [
       `匹配该机型共 ${all.length} 条本地记录，其中 ${formal.length} 条符合标准六分段；${excluded} 条旧档或自定义筛网记录未进入正式模型。`,
       qualityRejected ? `${qualityRejected} 条 D 级质量记录因质量回收偏差过大，未进入正式模型。` : "未发现因质量回收偏差过大而排除的 D 级测次。",
       `${k} 个有序刻度点，${formal.length - unorderable} 条测次有可用排序值；${unorderable} 条缺少排序值而未进入刻度曲线。`,
-      k > 1 ? `${direction}；相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。` : "至少需要两个不同且可排序的刻度点才能判断粒径变化方向。",
+      k > 1 ? `${direction}；相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。${k < 4 ? "方向和曲线形状仍是初步估计，间隔预测采用较宽概率区间。" : ""}` : "目前只有一个不同刻度点；无法从现有数据估计刻度响应方向。补测任意第二个刻度后即可开始区间预测。",
       repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `有 ${repeatedSettingCount} 个刻度具备重复测次；平均重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。`,
       protocolKeys.size > 1 ? `测量条件覆盖 ${protocolKeys.size} 种筛具/方法/时长组合，跨条件差异可能混入刻度效应。` : "标准筛具、筛分方法和时长未见多个组合造成的明显口径差异。",
       looError === null ? "留一插值误差尚不可计算（需要至少 3 个有序刻度点）。" : `留一交叉验证平均误差 ${looError.toFixed(2)} 个筛分档。`
@@ -180,9 +272,10 @@
       excludedRecords: excluded, qualityRejectedRecords: qualityRejected, unorderableRecords: unorderable, groups,
       candidates: mediumCandidates, bestObserved, nextTest, direction,
       directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount, evidence,
+      predictions, bestPrediction, predictedRange,
       bins: BIN_LABELS,
       targetNotice: "本页没有把筛分分布等同于冲煮质量。“中等手冲”尚无本项目杯测校准目标；候选值只按 300–800 μm 主体占比与两端尾部作探索性排序，不代表已验证的最佳萃取刻度。",
-      modelNotice: "M1–M4 为本项目内部诊断规则（刻度覆盖、方向一致性、留一误差、重复测量噪声），不是行业认证等级。仅在实测刻度范围内线性插值；不外推。"
+      modelNotice: "两个不同刻度点即可进行区间内概率预测；测点越少，80%工作预测区间越宽。中心 PSD 使用相邻测点线性插值，概率区间以留一误差、重复测次噪声和数据稀疏先验构造，并保持六段组成约束。区间尚未经过大量实际重复测次校准，不外推；M1–M4 是模型稳定性提示，不是是否给出预测的开关。"
     };
   }
 
