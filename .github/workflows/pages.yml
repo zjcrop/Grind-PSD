@@ -26,6 +26,7 @@ jobs:
       - name: Validate static application
         run: |
           node --check assets/psd-core.js
+          node --check assets/grinder-diagnostics.js
           node --check assets/supabase-sync-v7.2.2.js
           node --check assets/app-v7.js
           node --check assets/record-policy-core-v1.4.js
@@ -38,6 +39,7 @@ jobs:
           node --check assets/edit-sync-v1.8.1.js
           node --check assets/sieve-protocol-v1.8.2.js
           node tests/test_core.js
+          node tests/test_grinder_diagnostics.js
           node tests/test_mobile_io.js
           node tests/test_cloud_sync.js
           node tests/test_permissions_v14.js
@@ -53,8 +55,8 @@ jobs:
           from pathlib import Path
           path = Path("tests/test_static_ui.py")
           text = path.read_text(encoding="utf-8")
-          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.2")
-          text = text.replace('"version": "1.7.0"', '"version": "1.8.2"')
+          text = text.replace("grind-psd-shell-v1.7.0", "grind-psd-shell-v1.8.3")
+          text = text.replace('"version": "1.7.0"', '"version": "1.8.3"')
           path.write_text(text, encoding="utf-8")
           PY
           python3 -m unittest discover -s tests -v
