@@ -1,11 +1,11 @@
 "use strict";
 
-// Grind-PSD 1.4.2 application shell; permission overrides load from permissions-v1.4.js.
+// Grind-PSD 1.4.3 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const GrinderDiagnostics = window.GrindPSDDiagnostics;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "1.4.3";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -674,7 +674,10 @@ function renderGrinderDiagnostics() {
   const select = $("grinderDiagnosticModel");
   const container = $("grinderDiagnosticContent");
   if (!select || !container || !GrinderDiagnostics) return;
-  const models = GrinderDiagnostics.listModels(state.store.records);
+  const diagnosticMap = new Map();
+  [...state.communityRecords, ...state.store.records].forEach((record) => diagnosticMap.set(record.id, record));
+  const diagnosticRecords = [...diagnosticMap.values()];
+  const models = GrinderDiagnostics.listModels(diagnosticRecords);
   const previous = select.value;
   select.innerHTML = models.length
     ? models.map((item) => {
@@ -686,21 +689,21 @@ function renderGrinderDiagnostics() {
     select.value = previous;
   }
   if (!models.length) {
-    container.innerHTML = '<div class="empty">本机还没有磨豆机称测记录。先在“称测”中完成一条记录，机型会自动出现在这里。</div>';
+    container.innerHTML = '<div class="empty">当前没有可用的本地或社区磨豆机记录。完成称测或同步历史社区数据后，机型会自动出现在这里。</div>';
     return;
   }
 
   let selected;
   try { selected = JSON.parse(decodeURIComponent(select.value)); } catch (error) { selected = null; }
   if (!Array.isArray(selected)) selected = [models[0].brand, models[0].model];
-  const report = GrinderDiagnostics.diagnose(state.store.records, selected[0], selected[1]);
+  const report = GrinderDiagnostics.diagnose(diagnosticRecords, selected[0], selected[1]);
   const statusClass = report.grade.toLowerCase();
   const candidate = report.bestPrediction;
   const candidateMarkup = candidate
     ? `<div class="grinder-highlight"><span>间隔预测的探索性候选带（不是精确刻度断定）</span><strong>${report.predictedRange ? `${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}` : candidate.order.toFixed(2)}</strong><small>最高模型中心值：${candidate.order.toFixed(2)}；预测 300–800 μm ${candidate.middlePct.toFixed(1)}%，两端尾部 ${candidate.tailPct.toFixed(1)}%</small></div>`
     : report.bestObserved
       ? `<div class="grinder-highlight"><span>单点实测参考，尚不能推断刻度响应</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order))}</strong><small>再测一个不同刻度后即可开始区间概率预测。</small></div>`
-    : '<div class="empty">暂无可排序的标准六分段测次，暂时不能给出刻度方向或候选刻度。</div>';
+    : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
   const rows = report.candidates.map((point) => {
     const bars = point.pct.map((pct, i) => `<span title="${report.bins[i]} μm：${pct.toFixed(1)}%" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
     return `<tr><td>${escapeHtml(point.setting || String(point.order))}</td><td>${point.n}</td><td><div class="grinder-stacked-bar" role="img" aria-label="${point.pct.map((pct, i) => `${report.bins[i]} 微米 ${pct.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%</td><td>${point.tailPct.toFixed(1)}%</td></tr>`;
@@ -716,7 +719,7 @@ function renderGrinderDiagnostics() {
     ? `<p>建议补测排序值约 <strong>${report.nextTest.order.toFixed(2)}</strong>（当前最大空档 ${report.nextTest.left}–${report.nextTest.right}），用于缩小这段预测区间。</p>`
     : '<p>补测一个不同刻度后，即可开始估计两测点之间的响应和预测区间。</p>';
   container.innerHTML = `
-    <div class="grinder-report-heading"><span class="grinder-grade ${statusClass}">${report.grade} · ${escapeHtml(report.gradeLabel)}</span><span>${report.formalRecords} 条正式模型测次 / ${report.records} 条机型记录</span></div>
+    <div class="grinder-report-heading"><span class="grinder-grade ${statusClass}">${report.grade} · ${escapeHtml(report.gradeLabel)}</span><span>${report.formalRecords} 条纳入测次 / ${report.records} 条机型历史记录</span></div>
     <div class="grinder-diagnosis-grid">
       <section class="grinder-card"><h3>研磨意见</h3>${candidateMarkup}<p>${escapeHtml(report.direction)}。诊断建议优先关注同一筛分协议下的整条粒径分布，不以单一筛分率定粗细。</p></section>
       <section class="grinder-card"><h3>补测建议</h3>${nextTestMarkup}<p>${report.looError === null ? "交叉验证误差尚未估出，模型采用较宽先验预测区间。" : `留一预测误差：${report.looError.toFixed(2)} 个筛分档，并用于估计区间宽度。`}</p></section>
@@ -2358,6 +2361,7 @@ async function syncCommunity({ quiet = false } = {}) {
     renderCommunity();
     renderRecordDetail();
     renderSyncLog();
+    if (state.activeTab === "grinder") renderGrinderDiagnostics();
     updateNetworkStatus(`社区数据库已同步 · ${state.communityRecords.length} 条记录`);
     $("communityStatus").textContent = `已同步 ${state.communityRecords.length} 条记录`;
     if ($("authNetworkStatus")) {
