@@ -1,10 +1,11 @@
 "use strict";
 
-// Grind-PSD 1.4.0 application shell; permission overrides load from permissions-v1.4.js.
+// Grind-PSD 1.4.1 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
+const GrinderDiagnostics = window.GrindPSDDiagnostics;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -458,6 +459,7 @@ function bindEvents() {
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
+  $("grinderDiagnosticModel").addEventListener("change", renderGrinderDiagnostics);
 
   $("newRecordBtn").addEventListener("click", startMeasurementFlow);
   $("measurementStartBtn").addEventListener("click", startMeasurementFlow);
@@ -643,6 +645,7 @@ function switchTab(name) {
   });
 
   if (name === "history") renderHistory();
+  if (name === "grinder") renderGrinderDiagnostics();
   if (name === "array3d") {
     renderRecordDetail();
   }
@@ -664,6 +667,56 @@ function renderAll() {
   renderCommunity();
   updateCommunitySummary();
   renderSyncLog();
+  if (state.activeTab === "grinder") renderGrinderDiagnostics();
+}
+
+function renderGrinderDiagnostics() {
+  const select = $("grinderDiagnosticModel");
+  const container = $("grinderDiagnosticContent");
+  if (!select || !container || !GrinderDiagnostics) return;
+  const models = GrinderDiagnostics.listModels(state.store.records);
+  const previous = select.value;
+  select.innerHTML = models.length
+    ? models.map((item) => {
+      const value = encodeURIComponent(JSON.stringify([item.brand, item.model]));
+      return `<option value="${value}">${escapeHtml(item.brand)} · ${escapeHtml(item.model)}（${item.records} 条）</option>`;
+    }).join("")
+    : '<option value="">暂无机型记录</option>';
+  if (models.some((item) => encodeURIComponent(JSON.stringify([item.brand, item.model])) === previous)) {
+    select.value = previous;
+  }
+  if (!models.length) {
+    container.innerHTML = '<div class="empty">本机还没有磨豆机称测记录。先在“称测”中完成一条记录，机型会自动出现在这里。</div>';
+    return;
+  }
+
+  let selected;
+  try { selected = JSON.parse(decodeURIComponent(select.value)); } catch (error) { selected = null; }
+  if (!Array.isArray(selected)) selected = [models[0].brand, models[0].model];
+  const report = GrinderDiagnostics.diagnose(state.store.records, selected[0], selected[1]);
+  const statusClass = report.grade.toLowerCase();
+  const candidate = report.bestObserved;
+  const candidateMarkup = candidate
+    ? `<div class="grinder-highlight"><span>探索性候选（仅比较已有测点）</span><strong>${escapeHtml(candidate.setting || String(candidate.order))}</strong><small>300–800 μm 占比 ${candidate.middlePct.toFixed(1)}%；两端尾部合计 ${candidate.tailPct.toFixed(1)}%</small></div>`
+    : '<div class="empty">暂无可排序的标准六分段测次，暂时不能给出刻度方向或候选刻度。</div>';
+  const rows = report.candidates.map((point) => {
+    const bars = point.pct.map((pct, i) => `<span title="${report.bins[i]} μm：${pct.toFixed(1)}%" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
+    return `<tr><td>${escapeHtml(point.setting || String(point.order))}</td><td>${point.n}</td><td><div class="grinder-stacked-bar" role="img" aria-label="${point.pct.map((pct, i) => `${report.bins[i]} 微米 ${pct.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%</td><td>${point.tailPct.toFixed(1)}%</td></tr>`;
+  }).join("");
+  const nextTestMarkup = report.nextTest
+    ? `<p>建议补测排序值约 <strong>${report.nextTest.order.toFixed(2)}</strong>（当前最大空档 ${report.nextTest.left}–${report.nextTest.right}）。该建议只用于补足刻度覆盖，不意味着该刻度最接近目标 PSD。</p>`
+    : '<p>至少需要两个不同刻度点，系统才能提出补测位置。</p>';
+  container.innerHTML = `
+    <div class="grinder-report-heading"><span class="grinder-grade ${statusClass}">${report.grade} · ${escapeHtml(report.gradeLabel)}</span><span>${report.formalRecords} 条正式模型测次 / ${report.records} 条机型记录</span></div>
+    <div class="grinder-diagnosis-grid">
+      <section class="grinder-card"><h3>研磨意见</h3>${candidateMarkup}<p>${escapeHtml(report.direction)}。诊断建议优先关注同一筛分协议下的整条粒径分布，不以单一筛分率定粗细。</p></section>
+      <section class="grinder-card"><h3>补测建议</h3>${nextTestMarkup}<p>${report.looError === null ? "留一验证数据不足。" : `留一预测误差：${report.looError.toFixed(2)} 个筛分档。`}</p></section>
+    </div>
+    <section class="grinder-card grinder-distribution-card"><h3>已测刻度的六段 PSD</h3>
+      <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>排序值 / 刻度</th><th>测次</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="5">没有带排序值的标准六分段测次。</td></tr>'}</tbody></table></div>
+      <div class="grinder-legend">${report.bins.map((label, i) => `<span><i style="background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></i>${label} μm</span>`).join("")}</div>
+    </section>
+    <details class="grinder-evidence"><summary>诊断依据与限制</summary><ul>${report.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><p>${escapeHtml(report.targetNotice)}</p><p>${escapeHtml(report.modelNotice)}</p></details>`;
 }
 
 function updateActiveUser() {

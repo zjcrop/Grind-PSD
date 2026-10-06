@@ -1,0 +1,48 @@
+{
+  "provider": "grind-psd",
+  "contract": "grinder-reference/1.0",
+  "releaseId": "grind-psd-reference-1.0.20260730+2",
+  "dataVersion": "1.0.20260730+2",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-30T02:29:17.373132Z",
+  "status": "stable",
+  "appendOnly": false,
+  "source": {
+    "repository": "zjcrop/Grind-PSD",
+    "ref": "main",
+    "path": "data/database.json",
+    "commit": "83c39cbe130ec60b4222f3f96542ce0ffce34e1e"
+  },
+  "compatibility": {
+    "minimumConsumerContract": "grinder-reference/1.0",
+    "previousReleaseId": null,
+    "previousDataVersion": null
+  },
+  "counts": {
+    "rawRecords": 2,
+    "grinderModels": 2,
+    "numericReferenceModels": 0
+  },
+  "artifacts": [
+    {
+      "kind": "catalog",
+      "path": "catalog/grinder-reference-1.0.20260730+2.json",
+      "url": "https://raw.githubusercontent.com/zjcrop/Grind-PSD/main/provider/releases/catalog/grinder-reference-1.0.20260730+2.json",
+      "mediaType": "application/json",
+      "bytes": 2839,
+      "sha256": "9dc126327ee2b2c9daca0e69357d910df14d4369479897d2ecd09e1278d3fcab"
+    }
+  ],
+  "warnings": [
+    "Exact grinder settings are prohibited by contract.",
+    "Fewer than three eligible A/B-grade measurements produces no numeric setting range.",
+    "Consumer must display confidence, evidence count and operational warnings."
+  ],
+  "metadata": {
+    "qualityGradesIncluded": [
+      "A",
+      "B"
+    ],
+    "sourceStandardId": "grind-psd-sieve-v1"
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "contract": "grinder-reference/1.0",
+  "precisionPolicy": {
+    "exactSettingProhibited": true,
+    "minimumEligibleSamplesForNumericRange": 3,
+    "acceptedQualityGrades": [
+      "A",
+      "B"
+    ],
+    "mandatoryConsumerLabel": "参考范围，需结合实际流速与杯测修正"
+  },
+  "source": {
+    "schemaVersion": "3.0.0",
+    "standardId": "grind-psd-sieve-v1",
+    "updatedAt": "2026-07-30T02:29:17.373132Z",
+    "recordCount": 2
+  },
+  "grinders": [
+    {
+      "grinderId": "泰摩:m01",
+      "brand": "泰摩",
+      "model": "M01",
+      "standardId": "grind-psd-sieve-v1",
+      "confidence": "insufficient",
+      "precisionPolicy": "approximate-range-only",
+      "sampleCount": 1,
+      "eligibleSampleCount": 0,
+      "contributorCount": 0,
+      "observedSettings": [
+        "9"
+      ],
+      "points": [
+        {
+          "id": "gpsd-ms6w71va-1y5cdgvvrn9px",
+          "grinder": {
+            "brand": "泰摩",
+            "model": "M01",
+            "setting": "9",
+            "settingOrder": 10
+          },
+          "contributorId": "zj_crop-163-com",
+          "standardId": "grind-psd-sieve-v1",
+          "qualityGrade": "C",
+          "eligible": false,
+          "weight": 0,
+          "psd": {
+            "coarsePct": 13.48,
+            "bodyPct": 68.13,
+            "finesPct": 3.48
+          },
+          "roastLevel": null,
+          "createdAt": "2026-07-30T02:26:29.302000Z"
+        }
+      ],
+      "numericReferenceAllowed": false,
+      "warnings": [
+        "Insufficient evidence for a numeric setting range.",
+        "Show grind-direction guidance only."
+      ]
+    },
+    {
+      "grinderId": "泰摩:xlite",
+      "brand": "泰摩",
+      "model": "Xlite",
+      "standardId": "grind-psd-sieve-v1",
+      "confidence": "insufficient",
+      "precisionPolicy": "approximate-range-only",
+      "sampleCount": 1,
+      "eligibleSampleCount": 1,
+      "contributorCount": 1,
+      "observedSettings": [
+        "18"
+      ],
+      "points": [
+        {
+          "id": "gpsd-ms6w8iyf-15veiva1ex7r5f",
+          "grinder": {
+            "brand": "泰摩",
+            "model": "Xlite",
+            "setting": "18",
+            "settingOrder": 23
+          },
+          "contributorId": "zj_crop-163-com",
+          "standardId": "grind-psd-sieve-v1",
+          "qualityGrade": "A",
+          "eligible": true,
+          "weight": 1,
+          "psd": {
+            "coarsePct": 8.67,
+            "bodyPct": 68.67,
+            "finesPct": 2.67
+          },
+          "roastLevel": null,
+          "createdAt": "2026-07-30T02:27:38.103000Z"
+        }
+      ],
+      "numericReferenceAllowed": false,
+      "warnings": [
+        "Insufficient evidence for a numeric setting range.",
+        "Show grind-direction guidance only."
+      ]
+    }
+  ],
+  "dataVersion": "1.0.20260730+2"
+}
