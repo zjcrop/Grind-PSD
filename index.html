@@ -16,16 +16,17 @@
       location.replace(`${location.pathname}${location.hash}`);
     }
   </script>
-  <meta name="application-version" content="1.4.0">
-  <link rel="manifest" href="./manifest.webmanifest?v=1.4.0">
+  <meta name="application-version" content="1.4.1">
+  <link rel="manifest" href="./manifest.webmanifest?v=1.4.1">
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./assets/styles-v5.css?v=1.4.0">
-  <script src="./assets/psd-core.js?v=1.4.0" defer></script>
-  <script src="./assets/supabase-sync-v7.2.2.js?v=1.4.0" defer></script>
-  <script src="./assets/app-v7.js?v=1.4.0" defer></script>
-  <script src="./assets/record-policy-core-v1.4.js?v=1.4.0" defer></script>
-  <script src="./assets/permissions-v1.4.js?v=1.4.0" defer></script>
+  <link rel="stylesheet" href="./assets/styles-v5.css?v=1.4.1">
+  <script src="./assets/psd-core.js?v=1.4.1" defer></script>
+  <script src="./assets/grinder-diagnostics.js?v=1.4.1" defer></script>
+  <script src="./assets/supabase-sync-v7.2.2.js?v=1.4.1" defer></script>
+  <script src="./assets/app-v7.js?v=1.4.1" defer></script>
+  <script src="./assets/record-policy-core-v1.4.js?v=1.4.1" defer></script>
+  <script src="./assets/permissions-v1.4.js?v=1.4.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -70,6 +71,7 @@
     <button class="tab active" role="tab" aria-selected="true" data-tab="measure" type="button">称测</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="current" type="button">当前记录</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="history" type="button">历史记录</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="grinder" type="button">磨豆机诊断</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="array3d" type="button">记录详情</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="community" type="button" hidden>
       社区数据库 <span class="count-badge" id="communityCountBadge">0</span>
@@ -166,6 +168,24 @@
           </div>
         </div>
         <div id="historyContent" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section id="tab-grinder" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel grinder-diagnostic-panel">
+        <div class="panel-head wrap">
+          <div>
+            <h2>磨豆机诊断</h2>
+            <p class="note">按品牌和型号汇总本机可用测次。数据保存在本地，离线可用。</p>
+          </div>
+          <label class="compact-field grinder-model-picker">
+            <span>机型</span>
+            <select id="grinderDiagnosticModel"><option value="">暂无机型记录</option></select>
+          </label>
+        </div>
+        <div id="grinderDiagnosticContent" aria-live="polite">
+          <div class="empty">选择机型后生成诊断报告。</div>
+        </div>
       </div>
     </section>
 
@@ -652,7 +672,7 @@
     <div class="modal compact-modal">
       <button class="modal-close" data-close="settingsModal" type="button" aria-label="关闭">×</button>
       <h2 id="settingsTitle">账号、数据与 App</h2>
-      <p class="modal-intro">Grind-PSD 1.4.0 · 五筛六分段粉径分布分析器。本地记录优先保存，登录后可校验并同步至个人云端空间。</p>
+      <p class="modal-intro">Grind-PSD 1.4.1 · 五筛六分段粉径分布分析器。本地记录优先保存，登录后可校验并同步至个人云端空间。</p>
       <label class="field">
         <span>当前用户 ID</span>
         <input type="text" id="settingsUserId" maxlength="48" readonly>
@@ -667,7 +687,7 @@
       </label>
       <div class="app-about">
         <strong>软件信息</strong>
-        <span>版本：1.4.0</span>
+        <span>版本：1.4.1</span>
         <span>测量标准：Grind-PSD 五筛六分段标准 v2</span>
         <span>数据策略：本地优先 / Supabase 账号云端同步</span>
       </div>
@@ -718,8 +738,3 @@
       </div>
     </div>
   </div>
-
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <noscript>Grind-PSD 需要 JavaScript 才能进行本地记录与绘图。</noscript>
-</body>
-</html>
