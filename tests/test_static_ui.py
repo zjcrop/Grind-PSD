@@ -40,7 +40,7 @@ class StaticUiTests(unittest.TestCase):
         pages_workflow = (
             ROOT / ".github" / "workflows" / "pages.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("grind-psd-shell-v1.8.4", service_worker)
+        self.assertIn("grind-psd-shell-v1.8.5", service_worker)
         self.assertIn("./assets/supabase-sync-v7.2.2.js", service_worker)
         self.assertRegex(
             service_worker,
@@ -285,24 +285,26 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('rel="canonical" href="https://zjcrop.github.io/Grind-PSD/"', html)
         self.assertIn('location.search === "?v=7.1"', html)
         settings_block = html[html.index('id="settingsModal"'):]
-        self.assertIn("版本：1.4.2", settings_block)
+        self.assertIn("版本：1.4.3", settings_block)
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         self.assertNotIn("正式版", topbar)
         self.assertIn("https://zjcrop.github.io/Grind-PSD/", readme)
-        self.assertIn('"version": "1.8.4"', manifest)
-        self.assertIn('name="application-version" content="1.4.2"', html)
+        self.assertIn('"version": "1.8.5"', manifest)
+        self.assertIn('name="application-version" content="1.4.3"', html)
         for asset in (
-            "./manifest.webmanifest?v=1.4.2",
-            "./assets/styles-v5.css?v=1.4.2",
-            "./assets/psd-core.js?v=1.4.2",
-            "./assets/supabase-sync-v7.2.2.js?v=1.4.2",
-            "./assets/app-v7.js?v=1.4.2",
+            "./manifest.webmanifest?v=1.4.3",
+            "./assets/styles-v5.css?v=1.4.3",
+            "./assets/psd-core.js?v=1.4.3",
+            "./assets/supabase-sync-v7.2.2.js?v=1.4.3",
+            "./assets/app-v7.js?v=1.4.3",
         ):
             self.assertIn(asset, html)
-        self.assertIn('const APP_VERSION = "1.4.2"', script)
+        self.assertIn('const APP_VERSION = "1.4.3"', script)
         self.assertIn('data-tab="grinder"', html)
         self.assertIn('id="tab-grinder"', html)
         self.assertIn("function renderGrinderDiagnostics()", script)
+        self.assertIn("[...state.communityRecords, ...state.store.records]", script)
+        self.assertIn("GrinderDiagnostics.diagnose(diagnosticRecords", script)
 
     def test_v12_measurement_home_and_adaptive_record_detail(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -353,7 +355,7 @@ class StaticUiTests(unittest.TestCase):
         )
         self.assertIn("if (summaryContainer)", detail_block)
         self.assertIn("if (chartTitle)", detail_block)
-        self.assertIn('grind-psd-shell-v1.8.4', worker)
+        self.assertIn('grind-psd-shell-v1.8.5', worker)
 
     def test_samsung_safe_responsive_shell_and_reworked_controls(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
