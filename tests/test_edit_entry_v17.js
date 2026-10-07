@@ -56,14 +56,14 @@ assert.match(v181, /partitionUnchangedRecords/);
 assert.match(v181, /正在读取网络样本列表并比对本地内容/);
 
 const worker = fs.readFileSync(path.join(__dirname, "..", "service-worker.js"), "utf8");
-assert.match(worker, /grind-psd-shell-v1\.8\.7/);
+assert.match(worker, /grind-psd-shell-v1\.8\.8/);
 assert.match(worker, /permissions-v1\.4-base\.js/);
 assert.match(worker, /edit-entry-v1\.7\.js/);
 assert.match(worker, /edit-sync-v1\.8\.1\.js/);
 assert.match(worker, /sieve-protocol-v1\.8\.2\.js/);
 
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.webmanifest"), "utf8"));
-assert.equal(manifest.version, "1.8.7");
+assert.equal(manifest.version, "1.8.8");
 
 const migration = fs.readFileSync(
   path.join(__dirname, "..", "supabase", "migrations", "20260802_owner_edit_only.sql"),

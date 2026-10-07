@@ -69,6 +69,9 @@
         "settingOrder": {
           "type": ["number", "null"]
         },
+        "settingOrderSource": {
+          "enum": ["manual", "numeric-label", "legacy-unknown", "composite-inferred", "unavailable"]
+        },
         "color": {
           "type": "string",
           "pattern": "^#[0-9a-fA-F]{6}$"

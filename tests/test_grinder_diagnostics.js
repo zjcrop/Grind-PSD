@@ -7,7 +7,7 @@ const Diagnostics = require("../assets/grinder-diagnostics.js");
 function makeRecord(order, shares, options = {}) {
   return Core.createRecord({
     user: { id: "tester", name: "Tester" },
-    grinder: { brand: "Test", model: "Burr A", setting: String(order), settingOrder: order },
+    grinder: { brand: "Test", model: "Burr A", setting: options.setting || String(order), settingOrder: order, settingOrderSource: options.settingOrderSource },
     sample: { doseG: shares.reduce((sum, value) => sum + value, 0), durationSec: 60, sieveDevice: "test sieve" },
     weightsGrams: Object.fromEntries(Core.SIEVES.map((sieve, index) => [sieve.key, shares[index]])),
     sieveProfile: options.profile,
@@ -57,6 +57,10 @@ assert.equal(report.bestPrediction, null);
 assert.equal(report.predictedRange.low, 1.25);
 assert.equal(report.predictedRange.high, 4.75);
 assert.equal(report.hydraulicEnvelope.length, 3);
+assert.equal(report.measuredProfiles.length, 5);
+assert.equal(report.roastAdvice.length, 3);
+assert.ok(report.roastAdvice[0].order > report.roastAdvice[2].order, "light roast starts finer than dark roast");
+assert.match(report.profileAssessments[0].style, /分布/);
 
 const duplicate = makeRecord(3, [2, 11, 29, 31, 17, 10]);
 const duplicateReport = Diagnostics.diagnose([...regular, duplicate], "Test", "Burr A");
@@ -119,8 +123,32 @@ const zigzag = [
 ];
 const zigzagReport = Diagnostics.diagnose(zigzag, "Test", "Burr A");
 assert.equal(zigzagReport.grade, "M2");
-assert.equal(zigzagReport.predictions.length, 9);
-assert.match(zigzagReport.gradeLabel, /离散度较高/);
+assert.equal(zigzagReport.irregularGrinder, true);
+assert.equal(zigzagReport.predictions.length, 0);
+assert.match(zigzagReport.gradeLabel, /不规律/);
+assert.equal(zigzagReport.profileAssessments.length, 4, "irregular settings still receive measured PSD assessments");
+
+const composite = [
+  makeRecord(1, [4, 18, 33, 25, 13, 7], { setting: "2圈+5格" }),
+  makeRecord(2, [2, 10, 25, 30, 20, 13], { setting: "2圈+8格" })
+];
+const compositeReport = Diagnostics.diagnose(composite, "Test", "Burr A");
+assert.equal(compositeReport.groups.length, 0, "composite labels are never numerically guessed");
+assert.equal(compositeReport.predictions.length, 0);
+assert.equal(compositeReport.ambiguousOrderRecords, 2);
+assert.equal(compositeReport.measuredProfiles.length, 2);
+assert.ok(compositeReport.roastAdvice.every((item) => item.setting));
+
+const manuallyOrderedComposite = [
+  makeRecord(1, [4, 18, 33, 25, 13, 7], { setting: "2圈+5格", settingOrderSource: "manual" }),
+  makeRecord(2, [2, 10, 25, 30, 20, 13], { setting: "2圈+8格", settingOrderSource: "manual" })
+];
+assert.equal(Diagnostics.diagnose(manuallyOrderedComposite, "Test", "Burr A").groups.length, 2);
+
+const fineHeavy = makeRecord(1, [0, 0, 5, 10, 30, 55]);
+const fineReport = Diagnostics.diagnose([fineHeavy], "Test", "Burr A");
+assert.equal(fineReport.profileAssessments[0].clogging, "偏高");
+assert.match(fineReport.profileAssessments[0].note, /堵塞/);
 const sparse = Diagnostics.diagnose(regular.slice(0, 2), "Test", "Burr A");
 assert.equal(sparse.grade, "M2");
 assert.equal(sparse.predictions.length, 3);
