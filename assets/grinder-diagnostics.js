@@ -180,16 +180,31 @@
       group.imputationRates.push(sample.imputationRate);
     });
     return [...bySetting.values()].map((group) => {
-      const vector = meanVector(group.vectors, group.weights);
-      const totalWeight = group.weights.reduce((sum, value) => sum + value, 0) || 1;
+      const initial = meanVector(group.vectors, group.weights);
+      const deviations = group.vectors.map((item) => ordinalWasserstein(item, initial));
+      const sortedDeviations = [...deviations].sort((a, b) => a - b);
+      const medianDeviation = sortedDeviations[Math.floor(sortedDeviations.length / 2)] || 0;
+      const robustScale = Math.max(0.06, medianDeviation * 1.4826);
+      const weights = group.weights.map((weight, index) => {
+        const standardized = deviations[index] / (2.5 * robustScale);
+        return weight / (1 + standardized ** 2);
+      });
+      const vector = meanVector(group.vectors, weights);
+      const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+      const rawWeight = group.weights.reduce((sum, value) => sum + value, 0) || 1;
+      const dispersion = Math.sqrt(group.vectors.reduce((sum, item, index) =>
+        sum + weights[index] * ordinalWasserstein(item, vector) ** 2, 0) / totalWeight);
+      const effectiveCount = totalWeight ** 2 / Math.max(weights.reduce((sum, value) => sum + value ** 2, 0), 1e-9);
+      const confidence = Math.max(0.08, Math.min(1, (rawWeight / group.weights.length) / (1 + dispersion / 0.12)));
       return {
-        ...group,
+        ...group, weights,
         vector,
         labels: [...new Set(group.records.map((record) => record.grinder.setting))],
         center: ordinalCenter(vector),
-        imputationRate: group.imputationRates.reduce((sum, value, index) => sum + value * group.weights[index], 0) / totalWeight,
+        confidence, dispersion, effectiveCount,
+        imputationRate: group.imputationRates.reduce((sum, value, index) => sum + value * weights[index], 0) / totalWeight,
         repeatSpread: group.vectors.length > 1
-          ? group.vectors.reduce((sum, item, index) => sum + ordinalWasserstein(item, vector) * group.weights[index], 0) / totalWeight
+          ? group.vectors.reduce((sum, item, index) => sum + ordinalWasserstein(item, vector) * weights[index], 0) / totalWeight
           : null
       };
     }).sort((a, b) => a.order - b.order);
@@ -198,6 +213,21 @@
   function interpolate(a, b, x) {
     const t = (x - a.order) / (b.order - a.order);
     return a.vector.map((share, i) => share * (1 - t) + b.vector[i] * t);
+  }
+
+  function attentionSmoothGroups(groups) {
+    if (groups.length < 3) return groups;
+    return groups.map((group, index) => {
+      if (group.confidence >= 0.8) return group;
+      const neighborTrend = index === 0
+        ? groups[1].vector
+        : index === groups.length - 1
+          ? groups[index - 1].vector
+          : interpolate(groups[index - 1], groups[index + 1], group.order);
+      const trust = clamp((group.confidence - 0.2) / 0.6, 0.25, 1);
+      const vector = group.vector.map((share, bin) => share * trust + neighborTrend[bin] * (1 - trust));
+      return { ...group, vector, center: ordinalCenter(vector), attentionTrust: trust };
+    });
   }
 
   function predictAt(groups, x, omittedIndex = -1) {
@@ -319,33 +349,39 @@
     const excluded = all.length - usable.length;
     const unorderable = usable.filter((item) => finite(item.record.grinder?.settingOrder) === null).length;
     const groups = settingGroups(usable);
-    const k = groups.length;
+    const fittedGroups = attentionSmoothGroups(groups);
+    const k = fittedGroups.length;
     const meanNeighborShift = k > 1
-      ? groups.slice(1).reduce((sum, group, i) => sum + Math.abs(group.center - groups[i].center), 0) / (k - 1)
+      ? fittedGroups.slice(1).reduce((sum, group, i) => sum + Math.abs(group.center - fittedGroups[i].center), 0) / (k - 1)
       : null;
     const repeatValues = groups.filter((group) => group.repeatSpread !== null).map((group) => group.repeatSpread);
     const repeatNoise = repeatValues.length
       ? repeatValues.reduce((sum, value) => sum + value, 0) / repeatValues.length
       : null;
-    const centers = groups.map((group) => group.center);
-    const increases = centers.slice(1).filter((center, i) => center > centers[i] + 0.015).length;
-    const decreases = centers.slice(1).filter((center, i) => center < centers[i] - 0.015).length;
-    const directionalPairs = increases + decreases;
-    const directionConsistency = directionalPairs
-      ? Math.max(increases, decreases) / Math.max(1, k - 1)
+    const trendPairs = fittedGroups.slice(1).map((group, index) => ({
+      change: group.center - fittedGroups[index].center,
+      weight: Math.sqrt(group.confidence * fittedGroups[index].confidence)
+    }));
+    const increaseWeight = trendPairs.filter((pair) => pair.change > 0.015).reduce((sum, pair) => sum + pair.weight, 0);
+    const decreaseWeight = trendPairs.filter((pair) => pair.change < -0.015).reduce((sum, pair) => sum + pair.weight, 0);
+    const directionalWeight = increaseWeight + decreaseWeight;
+    const totalTrendWeight = trendPairs.reduce((sum, pair) => sum + pair.weight, 0);
+    const directionConsistency = directionalWeight
+      ? Math.max(increaseWeight, decreaseWeight) / Math.max(totalTrendWeight, 1e-9)
       : 0;
-    const direction = increases > decreases ? "刻度增大时整体趋细" : decreases > increases ? "刻度增大时整体趋粗" : "方向暂不明确";
+    const direction = increaseWeight > decreaseWeight ? "刻度增大时整体趋细" : decreaseWeight > increaseWeight ? "刻度增大时整体趋粗" : "方向暂不明确";
 
     const looErrors = [];
     const looResiduals = [];
     for (let i = 1; i < k - 1; i += 1) {
-      const predicted = predictAt(groups, groups[i].order, i);
+      const predicted = predictAt(fittedGroups, fittedGroups[i].order, i);
       if (predicted) {
-        looErrors.push(ordinalWasserstein(predicted, groups[i].vector));
-        looResiduals.push(predicted.map((share, bin) => groups[i].vector[bin] - share));
+        looErrors.push({ value: ordinalWasserstein(predicted, groups[i].vector), weight: groups[i].confidence });
+        looResiduals.push({ values: predicted.map((share, bin) => groups[i].vector[bin] - share), weight: groups[i].confidence });
       }
     }
-    const looError = looErrors.length ? looErrors.reduce((sum, value) => sum + value, 0) / looErrors.length : null;
+    const looWeight = looErrors.reduce((sum, item) => sum + item.weight, 0);
+    const looError = looErrors.length ? looErrors.reduce((sum, item) => sum + item.value * item.weight, 0) / Math.max(looWeight, 1e-9) : null;
     const noiseRatio = meanNeighborShift && repeatNoise !== null ? repeatNoise / meanNeighborShift : null;
     const repeatedSettingCount = groups.filter((group) => group.vectors.length > 1).length;
     const protocolKeys = new Set(formal.map((record) => [
@@ -356,18 +392,15 @@
 
     let grade = "M3";
     let gradeLabel = "仅有单点，暂不能拟合刻度响应";
-    if (k >= 2 && k < 4) {
-      grade = "M2";
-      gradeLabel = "低数据量概率预测";
-    } else if (k >= 4) {
-      if (directionConsistency >= 0.7 && (looError === null || looError <= 0.35) && (noiseRatio === null || noiseRatio <= 0.65)) {
-        grade = k >= 5 && repeatedSettingCount > 0 && directionConsistency >= 0.8 && (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
-          ? "M1" : "M2";
-        gradeLabel = grade === "M1" ? "稳定可建模" : "基本可建模";
-      } else {
-        grade = "M4";
-        gradeLabel = "现有数据不支持可靠连续建模";
-      }
+    if (k >= 2) {
+      grade = k >= 5 && repeatedSettingCount > 0 && directionConsistency >= 0.8 &&
+        (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
+        ? "M1" : "M2";
+      gradeLabel = grade === "M1"
+        ? "重复测量支持稳定建模"
+        : directionConsistency < 0.55 || (looError !== null && looError > 0.35) || (noiseRatio !== null && noiseRatio > 0.65)
+          ? "离散度较高，保留预测并扩大区间"
+          : k < 4 ? "低数据量概率预测" : "基本可建模";
     }
 
     const mediumCandidates = groups.map((group) => ({
@@ -377,21 +410,23 @@
       pct: group.vector.map((share) => share * 100),
       middlePct: (group.vector[2] + group.vector[3]) * 100,
       tailPct: (group.vector[0] + group.vector[5]) * 100,
-      center: group.center
+      center: group.center,
+      confidence: group.confidence,
+      dispersion: group.dispersion
     }));
     const bestObserved = mediumCandidates[0] || null;
     const looSigma = BIN_KEYS.map((_, bin) => looResiduals.length
-      ? Math.sqrt(looResiduals.reduce((sum, residual) => sum + residual[bin] ** 2, 0) / looResiduals.length)
+      ? Math.sqrt(looResiduals.reduce((sum, residual) => sum + residual.values[bin] ** 2 * residual.weight, 0) / Math.max(looResiduals.reduce((sum, residual) => sum + residual.weight, 0), 1e-9))
       : 0);
     const repeatSigma = BIN_KEYS.map((_, bin) => {
       const deviations = groups.flatMap((group) => group.vectors.length > 1
-        ? group.vectors.map((vector) => vector[bin] - group.vector[bin])
+        ? group.vectors.map((vector, index) => ({ value: vector[bin] - group.vector[bin], weight: group.weights[index] }))
         : []);
       return deviations.length
-        ? Math.sqrt(deviations.reduce((sum, value) => sum + value ** 2, 0) / deviations.length)
+        ? Math.sqrt(deviations.reduce((sum, item) => sum + item.value ** 2 * item.weight, 0) / Math.max(deviations.reduce((sum, item) => sum + item.weight, 0), 1e-9))
         : 0;
     });
-    const gaps = groups.slice(1).map((group, i) => ({ width: group.order - groups[i].order, left: groups[i], right: group }));
+    const gaps = fittedGroups.slice(1).map((group, i) => ({ width: group.order - fittedGroups[i].order, left: fittedGroups[i], right: group }));
     const sortedGapWidths = gaps.map((gap) => gap.width).sort((a, b) => a - b);
     const typicalGap = sortedGapWidths.length ? sortedGapWidths[Math.floor(sortedGapWidths.length / 2)] : null;
     const baseUncertainty = k < 3 ? 0.10 : k === 3 ? 0.075 : k === 4 ? 0.055 : 0.04;
@@ -403,10 +438,11 @@
         const gapInflation = typicalGap ? Math.min(2.5, Math.sqrt(width / typicalGap)) : 1;
         const curvature = 2 * Math.sqrt(t * (1 - t));
         const imputationInflation = 1 + ((1 - t) * left.imputationRate + t * right.imputationRate) * 1.25;
+        const dispersionInflation = 1 + (left.dispersion + right.dispersion) * 1.5 + (2 - left.confidence - right.confidence) * 0.45;
         const sigma = BIN_KEYS.map((_, bin) => Math.sqrt(
           ((1 - t) * repeatSigma[bin]) ** 2 + (t * repeatSigma[bin]) ** 2 +
           (Math.max(baseUncertainty, looSigma[bin]) * curvature * gapInflation) ** 2
-        ) * (protocolKeys.size > 1 ? 1.2 : 1) * imputationInflation);
+        ) * (protocolKeys.size > 1 ? 1.2 : 1) * imputationInflation * dispersionInflation);
         const intervals = logisticNormalInterval(vector, sigma, `${brand}/${model}/${left.order}/${right.order}/${t}`);
         predictions.push({
           order, fraction: t, left: left.order, right: right.order,
@@ -445,8 +481,8 @@
         : "纳入记录均为完整六段数据，无旧格式拆分或缺项插补。",
       qualityAdjusted ? `${qualityAdjusted} 条 D 级质量记录已降权纳入；质量回收偏差会降低其对中心曲线的影响。` : "未发现需要因严重质量偏差而降权的 D 级测次。",
       `${k} 个有序刻度点，${formal.length - unorderable} 条测次有可用排序值；${unorderable} 条缺少排序值但仍用于 PSD 汇总，无法定位到刻度间隔。`,
-      k > 1 ? `${direction}；相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。${k < 4 ? "方向和曲线形状仍是初步估计，间隔预测采用较宽概率区间。" : ""}` : "目前只有一个不同刻度点；无法从现有数据估计刻度响应方向。补测任意第二个刻度后即可开始区间预测。",
-      repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `有 ${repeatedSettingCount} 个刻度具备重复测次；平均重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。`,
+      k > 1 ? `${direction}；置信度加权后的相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。${k < 4 ? "方向和曲线形状仍是初步估计，间隔预测采用较宽概率区间。" : ""}` : "目前只有一个不同刻度点；无法从现有数据估计刻度响应方向。补测任意第二个刻度后即可开始区间预测。",
+      repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `有 ${repeatedSettingCount} 个刻度具备重复测次；平均重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。离散或低质量测次已按注意力权重降低影响。`,
       protocolKeys.size > 1 ? `测量条件覆盖 ${protocolKeys.size} 种筛具/方法/时长组合，跨条件差异可能混入刻度效应。` : "标准筛具、筛分方法和时长未见多个组合造成的明显口径差异。",
       looError === null ? "留一插值误差尚不可计算（需要至少 3 个有序刻度点）。" : `留一交叉验证平均误差 ${looError.toFixed(2)} 个筛分档。`
     ];
@@ -456,11 +492,13 @@
       inferredRecords, legacyRecords, qualityAdjustedRecords: qualityAdjusted,
       excludedRecords: excluded, qualityRejectedRecords: 0, unorderableRecords: unorderable, groups,
       candidates: mediumCandidates, bestObserved, nextTest, direction,
-      directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount, evidence,
+      directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount,
+      meanGroupDispersion: groups.length ? groups.reduce((sum, group) => sum + group.dispersion, 0) / groups.length : null,
+      meanGroupConfidence: groups.length ? groups.reduce((sum, group) => sum + group.confidence, 0) / groups.length : null, evidence,
       predictions, bestPrediction: null, predictedRange, hydraulicEnvelope,
       bins: BIN_LABELS,
       targetNotice: "研磨建议现在展示不同刻度的水力响应与注水情景范围，不给出由单一粒径占比推导的‘最佳刻度’。细粉、粗颗粒和中间粒径共同参与计算；候选带表示有数据支持的区间，不等同于杯测最佳区间。",
-      modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。PSD 区间概率仍采用留一误差、重复噪声和稀疏数据先验；不外推。"
+      modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。低可信样本按质量等级、插补比例和同刻度离散度降低权重；离散度增加时保留概率预测并扩大区间。"
     };
   }
 

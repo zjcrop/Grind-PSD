@@ -96,13 +96,31 @@ const qualityReport = Diagnostics.diagnose([...regular, poorQuality], "Test", "B
 assert.equal(qualityReport.qualityAdjustedRecords, 1);
 assert.equal(qualityReport.formalRecords, 6);
 
+const noisyLowConfidence = makeRecord(3, [40, 25, 15, 10, 6, 4]);
+noisyLowConfidence.metrics.quality.grade = "D";
+const noisyHighConfidence = makeRecord(3, [40, 25, 15, 10, 6, 4]);
+noisyHighConfidence.metrics.quality.grade = "A";
+const lowConfidenceReport = Diagnostics.diagnose([...regular, noisyLowConfidence], "Test", "Burr A");
+const highConfidenceReport = Diagnostics.diagnose([...regular, noisyHighConfidence], "Test", "Burr A");
+const referenceCenter = regular[2].weightsGrams.mesh35_retained_g / Object.values(regular[2].weightsGrams).reduce((sum, value) => sum + value, 0);
+const lowConfidenceCenter = lowConfidenceReport.groups[2].vector[2];
+const highConfidenceCenter = highConfidenceReport.groups[2].vector[2];
+assert.ok(Math.abs(lowConfidenceCenter - referenceCenter) < Math.abs(highConfidenceCenter - referenceCenter));
+assert.ok(lowConfidenceReport.groups[2].dispersion > 0);
+assert.ok(lowConfidenceReport.groups[2].confidence < highConfidenceReport.groups[2].confidence);
+assert.ok(lowConfidenceReport.predictions.find((point) => point.order === 2.75).pct[2] > highConfidenceReport.predictions.find((point) => point.order === 2.75).pct[2]);
+assert.ok(lowConfidenceReport.predictions.find((point) => point.left === 2 && point.right === 3).uncertaintyPct > report.predictions.find((point) => point.left === 2 && point.right === 3).uncertaintyPct);
+
 const zigzag = [
   makeRecord(1, [1, 2, 3, 4, 20, 70]),
   makeRecord(2, [40, 25, 15, 10, 6, 4]),
   makeRecord(3, [1, 1, 3, 5, 20, 70]),
   makeRecord(4, [45, 25, 15, 8, 5, 2])
 ];
-assert.equal(Diagnostics.diagnose(zigzag, "Test", "Burr A").grade, "M4");
+const zigzagReport = Diagnostics.diagnose(zigzag, "Test", "Burr A");
+assert.equal(zigzagReport.grade, "M2");
+assert.equal(zigzagReport.predictions.length, 9);
+assert.match(zigzagReport.gradeLabel, /离散度较高/);
 const sparse = Diagnostics.diagnose(regular.slice(0, 2), "Test", "Burr A");
 assert.equal(sparse.grade, "M2");
 assert.equal(sparse.predictions.length, 3);
