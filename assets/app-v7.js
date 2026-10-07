@@ -1,11 +1,11 @@
 "use strict";
 
-// Grind-PSD 1.4.3 application shell; permission overrides load from permissions-v1.4.js.
+// Grind-PSD 1.4.4 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const GrinderDiagnostics = window.GrindPSDDiagnostics;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.4.3";
+const APP_VERSION = "1.4.4";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -698,9 +698,8 @@ function renderGrinderDiagnostics() {
   if (!Array.isArray(selected)) selected = [models[0].brand, models[0].model];
   const report = GrinderDiagnostics.diagnose(diagnosticRecords, selected[0], selected[1]);
   const statusClass = report.grade.toLowerCase();
-  const candidate = report.bestPrediction;
-  const candidateMarkup = candidate
-    ? `<div class="grinder-highlight"><span>间隔预测的探索性候选带（不是精确刻度断定）</span><strong>${report.predictedRange ? `${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}` : candidate.order.toFixed(2)}</strong><small>最高模型中心值：${candidate.order.toFixed(2)}；预测 300–800 μm ${candidate.middlePct.toFixed(1)}%，两端尾部 ${candidate.tailPct.toFixed(1)}%</small></div>`
+  const candidateMarkup = report.predictedRange
+    ? `<div class="grinder-highlight"><span>粒径分布与注水情景共同模拟的刻度区间</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>区间内有 ${report.predictions.length} 个概率预测点；完整 PSD 经相对床层阻力与细粉迁移代理量计算，不从单一分区选“最佳”。</small></div>`
     : report.bestObserved
       ? `<div class="grinder-highlight"><span>单点实测参考，尚不能推断刻度响应</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order))}</strong><small>再测一个不同刻度后即可开始区间概率预测。</small></div>`
     : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
@@ -713,7 +712,8 @@ function renderGrinderDiagnostics() {
     const bars = point.pct.map((pct, i) => `<span title="${tooltip}" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
     const middleLow = point.intervals[2].low + point.intervals[3].low;
     const middleHigh = point.intervals[2].high + point.intervals[3].high;
-    return `<tr><td>${point.order.toFixed(2)}<small>${point.left}–${point.right} 内插</small></td><td><div class="grinder-stacked-bar" role="img" aria-label="${tooltip}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%<small>分段区间合计 ${middleLow.toFixed(1)}–${middleHigh.toFixed(1)}%</small></td><td>±${point.uncertaintyPct.toFixed(1)} pp</td></tr>`;
+    const scenarios = point.hydraulics.scenarios.map((scenario) => `${scenario.label}：迁移 ${scenario.migrationRisk.toFixed(0)} / 通道倾向 ${scenario.channelingTendency.toFixed(0)}`).join("；");
+    return `<tr><td>${point.order.toFixed(2)}<small>${point.left}–${point.right} 内插</small></td><td><div class="grinder-stacked-bar" role="img" aria-label="${tooltip}">${bars}</div></td><td>${point.hydraulics.d32Um.toFixed(0)} μm<small>相对阻力 ${point.hydraulics.relativeResistance.toFixed(2)}</small></td><td>${point.hydraulics.scenarios[1].migrationRisk.toFixed(0)} / 100<small title="${scenarios}">轻柔 ${point.hydraulics.scenarios[0].migrationRisk.toFixed(0)} · 较强 ${point.hydraulics.scenarios[2].migrationRisk.toFixed(0)}</small></td><td>${point.middlePct.toFixed(1)}%<small>六段概率区间半宽均值 ±${point.uncertaintyPct.toFixed(1)} pp</small></td></tr>`;
   }).join("");
   const nextTestMarkup = report.nextTest
     ? `<p>建议补测排序值约 <strong>${report.nextTest.order.toFixed(2)}</strong>（当前最大空档 ${report.nextTest.left}–${report.nextTest.right}），用于缩小这段预测区间。</p>`
@@ -728,9 +728,9 @@ function renderGrinderDiagnostics() {
       <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>排序值 / 刻度</th><th>测次</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="5">没有带排序值的标准六分段测次。</td></tr>'}</tbody></table></div>
       <div class="grinder-legend">${report.bins.map((label, i) => `<span><i style="background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></i>${label} μm</span>`).join("")}</div>
     </section>
-    <section class="grinder-card grinder-distribution-card"><h3>未测刻度的概率预测 <small>相邻点插值 · 80%工作预测区间</small></h3>
+    <section class="grinder-card grinder-distribution-card"><h3>未测刻度的概率与水力响应 <small>相邻点插值 · 80%工作预测区间</small></h3>
       ${report.predictions.length
-        ? `<div class="table-wrap"><table class="record-table grinder-forecast-table"><thead><tr><th>预测排序值</th><th>预测 PSD 均值</th><th>300–800 μm 主体</th><th>平均边际区间半宽</th></tr></thead><tbody>${predictedRows}</tbody></table></div><p class="note">悬停分布条可查看六个粒径段的中心预测与各段区间。每次模拟样本都保持六段合计 100%；分段边际区间不能彼此相加。</p>`
+        ? `<div class="table-wrap"><table class="record-table grinder-forecast-table"><thead><tr><th>预测刻度</th><th>预测 PSD（由粗到细）</th><th>表面积加权粒径 / 相对阻力</th><th>细粉迁移倾向（轻柔 / 常规 / 较强）</th><th>300–800 μm 主体</th></tr></thead><tbody>${predictedRows}</tbody></table></div><p class="note">相对阻力根据完整粒径分布估算；三种注水扰动是情景比较，不代表实测流速或萃取率。悬停分布条可查看六段中心预测与边际区间；每次模拟样本均保持六段合计 100%。</p>`
         : '<p class="note">至少需要两个不同刻度点才能对未测间隔进行预测。当前仍展示已有实测 PSD。</p>'}
     </section>
     <details class="grinder-evidence"><summary>诊断依据与限制</summary><ul>${report.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><p>${escapeHtml(report.targetNotice)}</p><p>${escapeHtml(report.modelNotice)}</p></details>`;
