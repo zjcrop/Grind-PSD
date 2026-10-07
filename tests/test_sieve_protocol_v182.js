@@ -54,8 +54,8 @@ assert.deepEqual(standard.operationProtocol.noTapMeshes, [18, 24, 35]);
 assert.deepEqual(standard.operationProtocol.fineMeshRelease.meshes, [60, 80]);
 assert.equal(standard.operationProtocol.fineMeshRelease.totalTaps, 8);
 assert.match(standard.operationProtocol.fineMeshRelease.requiredStatement, /避免静电吸附、受潮吸附需要敲击侧面/);
-assert.match(worker, /grind-psd-shell-v1\.8\.5/);
+assert.match(worker, /grind-psd-shell-v1\.8\.6/);
 assert.match(worker, /sieve-protocol-v1\.8\.2\.js/);
-assert.equal(manifest.version, "1.8.5");
+assert.equal(manifest.version, "1.8.6");
 
 console.log("Grind-PSD v1.8.2 controlled sieve protocol tests passed.");

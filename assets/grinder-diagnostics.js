@@ -16,6 +16,12 @@
     { low: 180, high: 300 }, { low: 0, high: 180 }
   ];
   const BROAD_PRIOR = [0.08, 0.20, 0.30, 0.23, 0.12, 0.07];
+  const BIN_DIAMETER_UM = [1400, 900, 632, 387, 232, 120];
+  const POUR_SCENARIOS = [
+    { id: "gentle", label: "轻柔注水", flowRate: 0.75, jetEnergy: 0.55 },
+    { id: "standard", label: "常规注水", flowRate: 1, jetEnergy: 1 },
+    { id: "energetic", label: "较强扰动", flowRate: 1.25, jetEnergy: 1.55 }
+  ];
 
   function finite(value) {
     const n = Number(value);
@@ -247,6 +253,45 @@
     return draws.map((values) => ({ low: quantile(values, 0.1), high: quantile(values, 0.9) }));
   }
 
+  function clamp(value, low, high) {
+    return Math.max(low, Math.min(high, value));
+  }
+
+  // A transparent relative proxy, not an absolute permeability or CFD solution.
+  // d32 approximates surface-area-weighted particle size; fine/coarse interaction
+  // adds a packing and migration term that a single-bin score cannot represent.
+  function hydraulicResponse(vector) {
+    const reciprocalDiameter = vector.reduce((sum, share, bin) => sum + share / BIN_DIAMETER_UM[bin], 0);
+    const d32 = reciprocalDiameter > 0 ? 1 / reciprocalDiameter : 0;
+    const veryFineShare = vector[5];
+    const fineShare = vector[4] + vector[5];
+    const coarseShare = vector[0] + vector[1];
+    const fineCoarseMix = Math.sqrt(fineShare * coarseShare);
+    const relativeResistance = (500 / Math.max(d32, 1)) ** 2 * (1 + 1.5 * veryFineShare + 0.6 * fineCoarseMix);
+    const spread = Math.sqrt(vector.reduce((sum, share, bin) => {
+      const distance = Math.log(BIN_DIAMETER_UM[bin] / Math.max(d32, 1));
+      return sum + share * distance ** 2;
+    }, 0));
+    return {
+      d32Um: d32,
+      finePct: fineShare * 100,
+      coarsePct: coarseShare * 100,
+      mixSpread: spread,
+      relativeResistance,
+      scenarios: POUR_SCENARIOS.map((scenario) => {
+        const migrationRisk = clamp((fineShare * 0.65 + fineCoarseMix * 0.35) * scenario.jetEnergy * 100, 0, 100);
+        const channelingTendency = clamp((spread / 1.7 * 35 + fineCoarseMix * 35 + Math.max(0, relativeResistance - 1) * 8) * scenario.jetEnergy, 0, 100);
+        return {
+          ...scenario,
+          pressureDemand: relativeResistance * scenario.flowRate,
+          contactTime: relativeResistance / scenario.flowRate,
+          migrationRisk,
+          channelingTendency
+        };
+      })
+    };
+  }
+
   function diagnose(records, brand, model) {
     const all = records.filter((record) => record.grinder?.brand === brand && record.grinder?.model === model);
     const modelReferences = all.map((record) => ({
@@ -334,9 +379,7 @@
       tailPct: (group.vector[0] + group.vector[5]) * 100,
       center: group.center
     }));
-    const bestObserved = [...mediumCandidates].sort((a, b) =>
-      (b.middlePct - 0.5 * b.tailPct) - (a.middlePct - 0.5 * a.tailPct)
-    )[0] || null;
+    const bestObserved = mediumCandidates[0] || null;
     const looSigma = BIN_KEYS.map((_, bin) => looResiduals.length
       ? Math.sqrt(looResiduals.reduce((sum, residual) => sum + residual[bin] ** 2, 0) / looResiduals.length)
       : 0);
@@ -371,21 +414,24 @@
           intervals: intervals.map((range) => ({ low: range.low * 100, high: range.high * 100 })),
           middlePct: (vector[2] + vector[3]) * 100,
           tailPct: (vector[0] + vector[5]) * 100,
-          uncertaintyPct: sigma.reduce((sum, value) => sum + value, 0) / sigma.length * 100
+          uncertaintyPct: sigma.reduce((sum, value) => sum + value, 0) / sigma.length * 100,
+          hydraulics: hydraulicResponse(vector)
         });
       });
     });
-    const candidatePool = predictions;
-    const scoreOf = (point) => point.middlePct - 0.5 * point.tailPct;
-    const bestPrediction = [...candidatePool].sort((a, b) => scoreOf(b) - scoreOf(a))[0] || null;
-    const bestScore = bestPrediction ? scoreOf(bestPrediction) : null;
-    const candidateBand = bestPrediction
-      ? candidatePool.filter((point) => scoreOf(point) >= bestScore - 5)
-      : [];
-    const predictedRange = candidateBand.length ? {
-      low: Math.min(...candidateBand.map((point) => point.order)),
-      high: Math.max(...candidateBand.map((point) => point.order))
+    const predictedRange = predictions.length ? {
+      low: Math.min(...predictions.map((point) => point.order)),
+      high: Math.max(...predictions.map((point) => point.order))
     } : null;
+    const hydraulicEnvelope = predictions.length ? POUR_SCENARIOS.map((scenario, scenarioIndex) => {
+      const risks = predictions.map((point) => point.hydraulics.scenarios[scenarioIndex].migrationRisk);
+      const demands = predictions.map((point) => point.hydraulics.scenarios[scenarioIndex].pressureDemand);
+      return {
+        ...scenario,
+        migrationRisk: { low: Math.min(...risks), high: Math.max(...risks) },
+        pressureDemand: { low: Math.min(...demands), high: Math.max(...demands) }
+      };
+    }) : [];
     let nextTest = null;
     if (gaps.length) {
       const widest = [...gaps].sort((a, b) => b.width - a.width)[0];
@@ -411,10 +457,10 @@
       excludedRecords: excluded, qualityRejectedRecords: 0, unorderableRecords: unorderable, groups,
       candidates: mediumCandidates, bestObserved, nextTest, direction,
       directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount, evidence,
-      predictions, bestPrediction, predictedRange,
+      predictions, bestPrediction: null, predictedRange, hydraulicEnvelope,
       bins: BIN_LABELS,
-      targetNotice: "本页没有把筛分分布等同于冲煮质量。“中等手冲”尚无本项目杯测校准目标；候选值只按 300–800 μm 主体占比与两端尾部作探索性排序，不代表已验证的最佳萃取刻度。",
-      modelNotice: "本机历史记录和已同步的社区记录会自动纳入；旧五段合并档、自定义区间或缺项按筛孔区间映射，并借助同机型完整测次或宽先验估算拆分。估算记录会降低权重并扩大预测区间。两个不同刻度点即可进行区间内概率预测；测点越少，80%工作预测区间越宽。中心 PSD 使用相邻测点线性插值，概率区间以留一误差、重复测次噪声和稀疏数据先验构造，并保持六段组成约束。区间尚未经过大量实际重复测次校准，不外推；M1–M4 是稳定性提示，不是是否给出预测的开关。"
+      targetNotice: "研磨建议现在展示不同刻度的水力响应与注水情景范围，不给出由单一粒径占比推导的‘最佳刻度’。细粉、粗颗粒和中间粒径共同参与计算；候选带表示有数据支持的区间，不等同于杯测最佳区间。",
+      modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。PSD 区间概率仍采用留一误差、重复噪声和稀疏数据先验；不外推。"
     };
   }
 
