@@ -1,11 +1,11 @@
 "use strict";
 
-// Grind-PSD 1.4.4 application shell; permission overrides load from permissions-v1.4.js.
+// Grind-PSD 1.4.5 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const GrinderDiagnostics = window.GrindPSDDiagnostics;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.4.4";
+const APP_VERSION = "1.4.5";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -705,7 +705,7 @@ function renderGrinderDiagnostics() {
     : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
   const rows = report.candidates.map((point) => {
     const bars = point.pct.map((pct, i) => `<span title="${report.bins[i]} μm：${pct.toFixed(1)}%" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
-    return `<tr><td>${escapeHtml(point.setting || String(point.order))}</td><td>${point.n}</td><td><div class="grinder-stacked-bar" role="img" aria-label="${point.pct.map((pct, i) => `${report.bins[i]} 微米 ${pct.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%</td><td>${point.tailPct.toFixed(1)}%</td></tr>`;
+    return `<tr><td>${escapeHtml(point.setting || String(point.order))}</td><td>${point.n}</td><td>${(point.confidence * 100).toFixed(0)}%<small>离散度 ${point.dispersion.toFixed(2)} 档</small></td><td><div class="grinder-stacked-bar" role="img" aria-label="${point.pct.map((pct, i) => `${report.bins[i]} 微米 ${pct.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%</td><td>${point.tailPct.toFixed(1)}%</td></tr>`;
   }).join("");
   const predictedRows = report.predictions.map((point) => {
     const tooltip = point.pct.map((pct, i) => `${report.bins[i]} μm：${pct.toFixed(1)}%（80%工作区间 ${point.intervals[i].low.toFixed(1)}–${point.intervals[i].high.toFixed(1)}%）`).join("；");
@@ -725,7 +725,7 @@ function renderGrinderDiagnostics() {
       <section class="grinder-card"><h3>补测建议</h3>${nextTestMarkup}<p>${report.looError === null ? "交叉验证误差尚未估出，模型采用较宽先验预测区间。" : `留一预测误差：${report.looError.toFixed(2)} 个筛分档，并用于估计区间宽度。`}</p></section>
     </div>
     <section class="grinder-card grinder-distribution-card"><h3>已测刻度的六段 PSD</h3>
-      <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>排序值 / 刻度</th><th>测次</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="5">没有带排序值的标准六分段测次。</td></tr>'}</tbody></table></div>
+      <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>排序值 / 刻度</th><th>测次</th><th>模型置信度 / 离散度</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="6">没有带排序值的标准六分段测次。</td></tr>'}</tbody></table></div>
       <div class="grinder-legend">${report.bins.map((label, i) => `<span><i style="background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></i>${label} μm</span>`).join("")}</div>
     </section>
     <section class="grinder-card grinder-distribution-card"><h3>未测刻度的概率与水力响应 <small>相邻点插值 · 80%工作预测区间</small></h3>
