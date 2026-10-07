@@ -473,7 +473,7 @@ main {
   margin-bottom: 14px;
 }
 
-.grinder-card {
+.grinder-card { 
   min-width: 0;
   padding: 16px;
   border: 1px solid var(--border);
@@ -520,16 +520,6 @@ main {
 .grinder-psd-table {
   min-width: 620px;
 }
-
-.grinder-forecast-table { min-width: 620px; }
-.grinder-forecast-table td small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 10px;
-  white-space: normal;
-}
-.grinder-distribution-card h3 small { color: var(--muted); font-size: 11px; font-weight: 400; }
 
 .grinder-stacked-bar {
   display: flex;
@@ -3078,3 +3068,24 @@ main {
     padding: 12px;
   }
 }
+
+.grinder-roast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.grinder-roast-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line, #ded8cf);
+  border-radius: 12px;
+  background: var(--surface, #fffdf9);
+}
+
+.grinder-roast-grid article > strong { font-size: 1rem; }
+.grinder-roast-grid article > span { font-weight: 650; }
+.grinder-roast-grid article small { color: var(--muted, #68645f); }
+.grinder-roast-grid article p { margin: 0; }

@@ -164,11 +164,28 @@
     return distance;
   }
 
+  function settingOrderInfo(record) {
+    const order = finite(record.grinder?.settingOrder);
+    if (order === null) return { order: null, confidence: 0, reason: "未提供可比较排序值" };
+    const label = String(record.grinder?.setting || "").trim();
+    const source = record.grinder?.settingOrderSource;
+    const parts = label.match(/-?\d+(?:\.\d+)?/g) || [];
+    if (source === "manual") return { order, confidence: 1, reason: "手动排序" };
+    if (source === "composite-inferred" || (parts.length > 1 && source !== "manual")) {
+      return { order: null, confidence: 0, reason: "复合刻度被旧规则换算，需手动排序" };
+    }
+    if (source === "numeric-label" || (parts.length === 1 && /^-?\d+(?:\.\d+)?$/.test(label))) {
+      return { order, confidence: 0.9, reason: "单一数字刻度" };
+    }
+    if (source === "unavailable") return { order: null, confidence: 0, reason: "未提供可比较排序值" };
+    return { order, confidence: 0.45, reason: "历史排序来源不明" };
+  }
+
   function settingGroups(records) {
     const bySetting = new Map();
     records.forEach((sample) => {
       const record = sample.record;
-      const order = finite(record.grinder?.settingOrder);
+      const order = sample.orderInfo ? sample.orderInfo.order : finite(record.grinder?.settingOrder);
       const vector = sample.vector;
       if (order === null || !vector) return;
       const key = String(order);
@@ -176,7 +193,7 @@
       const group = bySetting.get(key);
       group.records.push(record);
       group.vectors.push(vector);
-      group.weights.push(sample.reliability);
+      group.weights.push(sample.reliability * (sample.orderInfo?.confidence ?? 0.45));
       group.imputationRates.push(sample.imputationRate);
     });
     return [...bySetting.values()].map((group) => {
@@ -322,22 +339,117 @@
     };
   }
 
+  function measuredSettingProfiles(samples) {
+    const byLabel = new Map();
+    samples.forEach((sample) => {
+      const label = String(sample.record.grinder?.setting || "未标刻度").trim();
+      if (!byLabel.has(label)) byLabel.set(label, { setting: label, vectors: [], weights: [], records: [] });
+      const group = byLabel.get(label);
+      group.vectors.push(sample.vector);
+      group.weights.push(sample.reliability);
+      group.records.push(sample.record);
+    });
+    return [...byLabel.values()].map((group) => {
+      const vector = meanVector(group.vectors, group.weights);
+      const representative = group.records[0];
+      return {
+        setting: group.setting,
+        order: settingOrderInfo(representative).order,
+        n: group.records.length,
+        vector,
+        center: ordinalCenter(vector),
+        hydraulics: hydraulicResponse(vector)
+      };
+    });
+  }
+
+  function profileJudgement(point) {
+    const vector = point.vector;
+    const finePct = (vector[4] + vector[5]) * 100;
+    const coarsePct = (vector[0] + vector[1]) * 100;
+    const midPct = (vector[2] + vector[3]) * 100;
+    const standard = point.hydraulics.scenarios[1];
+    const clogging = standard.migrationRisk >= 45 ? "偏高" : standard.migrationRisk >= 30 ? "中等" : "较低";
+    let flowNote;
+    if (finePct >= 35) {
+      flowNote = "细粉占比较高，粉床阻力、慢流和滤纸堵塞警示偏高；容易出现长尾滴滤，注水扰动也可能放大床层不均。";
+    } else if (coarsePct >= 40) {
+      flowNote = "粗颗粒占比较高，排水可能较快；浅烘或低水温时更需留意萃取不足，注水分布不均时可能出现通道化。";
+    } else if (midPct >= 45) {
+      flowNote = "中间粒径占主体，预计流动响应相对均衡；实际流速仍受滤杯、滤纸、粉床高度和注水方式影响。";
+    } else {
+      flowNote = "粗细两端占比都不低，粉床流动和萃取可能更不均；建议观察总滴滤时间与杯中风味再微调。";
+    }
+    const style = point.hydraulics.mixSpread >= 1.15 ? "宽分布、粗细混合明显"
+      : point.hydraulics.mixSpread <= 0.82 ? "分布相对集中"
+        : "中等宽度分布";
+    const roastFit = finePct >= 35
+      ? "偏向浅烘所需的细研磨，但细粉/慢流风险偏高，冲煮时要重点观察堵塞"
+      : coarsePct >= 40
+        ? "偏向深烘的较粗起步；浅烘使用时更要留意萃取不足"
+        : "中间粒径较均衡，可从中浅烘到中深烘的中位建议起步";
+    return {
+      setting: point.setting,
+      n: point.n,
+      finePct,
+      coarsePct,
+      clogging,
+      migrationRisk: standard.migrationRisk,
+      relativeResistance: point.hydraulics.relativeResistance,
+      style, roastFit,
+      note: flowNote
+    };
+  }
+
+  function roastStartingPoints(measuredProfiles, predictions, curveReliable) {
+    const pool = curveReliable && predictions.length
+      ? [...measuredProfiles, ...predictions.map((point) => ({
+        setting: null, order: point.order, n: 0,
+        vector: point.pct.map((share) => share / 100),
+        center: ordinalCenter(point.pct.map((share) => share / 100)),
+        hydraulics: point.hydraulics
+      }))]
+      : measuredProfiles;
+    if (!pool.length) return [];
+    const recipes = [
+      { roast: "浅烘/极浅烘", quantile: 0.72, hint: "从相对细的一档起步，提高萃取驱动力；若滴滤明显变慢或堵塞警示偏高，先回粗少许并用水温/注水补偿。" },
+      { roast: "中浅烘至中深烘", quantile: 0.5, hint: "先取本机 PSD 中位附近的刻度，再按流速和杯测微调。" },
+      { roast: "深烘", quantile: 0.28, hint: "从相对粗的一档起步，降低慢流与过度萃取风险；若风味偏薄，再小幅调细。" }
+    ];
+    const sorted = [...pool].sort((a, b) => a.center - b.center);
+    return recipes.map((recipe) => {
+      const target = (sorted.length - 1) * recipe.quantile;
+      const point = sorted[Math.round(target)];
+      return {
+        roast: recipe.roast,
+        setting: point.setting,
+        order: point.order,
+        risk: profileJudgement(point).clogging,
+        riskIndex: profileJudgement(point).migrationRisk,
+        style: profileJudgement(point).style,
+        hint: recipe.hint,
+        modeled: !point.setting && curveReliable
+      };
+    });
+  }
+
   function diagnose(records, brand, model) {
     const all = records.filter((record) => record.grinder?.brand === brand && record.grinder?.model === model);
     const modelReferences = all.map((record) => ({
-      order: finite(record.grinder?.settingOrder), vector: exactReferenceVector(record)
+      order: settingOrderInfo(record).order, vector: exactReferenceVector(record)
     })).filter((item) => item.vector);
     const brandReferences = records.filter((record) => record.grinder?.brand === brand)
       .map((record) => ({ order: null, vector: exactReferenceVector(record) })).filter((item) => item.vector);
     const globalReferences = records.map((record) => ({ order: null, vector: exactReferenceVector(record) })).filter((item) => item.vector);
     const usable = all.map((record) => {
-      const order = finite(record.grinder?.settingOrder);
+      const orderInfo = settingOrderInfo(record);
+      const order = orderInfo.order;
       const references = modelReferences.length ? modelReferences : (brandReferences.length ? brandReferences : globalReferences);
       const converted = modelVectorFor(record, referenceAt(order, references));
       if (!converted) return null;
       const gradeReliability = { A: 1, B: 0.9, C: 0.75, D: 0.45 }[record.metrics?.quality?.grade] || 0.85;
       return {
-        record, vector: converted.vector, inferred: converted.inferred,
+        record, vector: converted.vector, inferred: converted.inferred, orderInfo,
         imputationRate: converted.imputationRate,
         reliability: gradeReliability * (1 - 0.3 * converted.imputationRate)
       };
@@ -347,7 +459,8 @@
     const legacyRecords = usable.filter((item) => item.record.standardId === "grind-psd-sieve-v1" || item.record.sieveProfile?.legacy).length;
     const qualityAdjusted = formal.filter((record) => record.metrics?.quality?.grade === "D").length;
     const excluded = all.length - usable.length;
-    const unorderable = usable.filter((item) => finite(item.record.grinder?.settingOrder) === null).length;
+    const unorderable = usable.filter((item) => item.orderInfo.order === null).length;
+    const ambiguousOrderRecords = usable.filter((item) => item.orderInfo.reason.includes("复合刻度")).length;
     const groups = settingGroups(usable);
     const fittedGroups = attentionSmoothGroups(groups);
     const k = fittedGroups.length;
@@ -369,6 +482,9 @@
     const directionConsistency = directionalWeight
       ? Math.max(increaseWeight, decreaseWeight) / Math.max(totalTrendWeight, 1e-9)
       : 0;
+    const activeTrendPairs = trendPairs.filter((pair) => Math.abs(pair.change) > 0.015);
+    const trendReversals = activeTrendPairs.slice(1).reduce((count, pair, index) =>
+      count + (Math.sign(pair.change) !== Math.sign(activeTrendPairs[index].change) ? 1 : 0), 0);
     const direction = increaseWeight > decreaseWeight ? "刻度增大时整体趋细" : decreaseWeight > increaseWeight ? "刻度增大时整体趋粗" : "方向暂不明确";
 
     const looErrors = [];
@@ -382,6 +498,10 @@
     }
     const looWeight = looErrors.reduce((sum, item) => sum + item.weight, 0);
     const looError = looErrors.length ? looErrors.reduce((sum, item) => sum + item.value * item.weight, 0) / Math.max(looWeight, 1e-9) : null;
+    const irregularGrinder = k >= 4 && activeTrendPairs.length >= 3 && (
+      directionConsistency < 0.62 || trendReversals >= 2 || (k >= 5 && looError !== null && looError > 0.45)
+    );
+    const curveReliable = k >= 2 && !irregularGrinder;
     const noiseRatio = meanNeighborShift && repeatNoise !== null ? repeatNoise / meanNeighborShift : null;
     const repeatedSettingCount = groups.filter((group) => group.vectors.length > 1).length;
     const protocolKeys = new Set(formal.map((record) => [
@@ -396,7 +516,9 @@
       grade = k >= 5 && repeatedSettingCount > 0 && directionConsistency >= 0.8 &&
         (looError === null || looError <= 0.22) && (noiseRatio === null || noiseRatio <= 0.4)
         ? "M1" : "M2";
-      gradeLabel = grade === "M1"
+      gradeLabel = irregularGrinder
+        ? "刻度与 PSD 响应明显不规律，停止跨刻度预测，仅评估实测刻度"
+        : grade === "M1"
         ? "重复测量支持稳定建模"
         : directionConsistency < 0.55 || (looError !== null && looError > 0.35) || (noiseRatio !== null && noiseRatio > 0.65)
           ? "离散度较高，保留预测并扩大区间"
@@ -414,7 +536,13 @@
       confidence: group.confidence,
       dispersion: group.dispersion
     }));
-    const bestObserved = mediumCandidates[0] || null;
+    const measuredProfiles = measuredSettingProfiles(usable);
+    const profileAssessments = measuredProfiles.map(profileJudgement);
+    const bestObserved = mediumCandidates[0] || (measuredProfiles[0] ? {
+      order: measuredProfiles[0].order, setting: measuredProfiles[0].setting,
+      n: measuredProfiles[0].n, pct: measuredProfiles[0].vector.map((share) => share * 100),
+      center: measuredProfiles[0].center, confidence: null, dispersion: null
+    } : null);
     const looSigma = BIN_KEYS.map((_, bin) => looResiduals.length
       ? Math.sqrt(looResiduals.reduce((sum, residual) => sum + residual.values[bin] ** 2 * residual.weight, 0) / Math.max(looResiduals.reduce((sum, residual) => sum + residual.weight, 0), 1e-9))
       : 0);
@@ -426,7 +554,7 @@
         ? Math.sqrt(deviations.reduce((sum, item) => sum + item.value ** 2 * item.weight, 0) / Math.max(deviations.reduce((sum, item) => sum + item.weight, 0), 1e-9))
         : 0;
     });
-    const gaps = fittedGroups.slice(1).map((group, i) => ({ width: group.order - fittedGroups[i].order, left: fittedGroups[i], right: group }));
+    const gaps = curveReliable ? fittedGroups.slice(1).map((group, i) => ({ width: group.order - fittedGroups[i].order, left: fittedGroups[i], right: group })) : [];
     const sortedGapWidths = gaps.map((gap) => gap.width).sort((a, b) => a - b);
     const typicalGap = sortedGapWidths.length ? sortedGapWidths[Math.floor(sortedGapWidths.length / 2)] : null;
     const baseUncertainty = k < 3 ? 0.10 : k === 3 ? 0.075 : k === 4 ? 0.055 : 0.04;
@@ -455,6 +583,7 @@
         });
       });
     });
+    const roastAdvice = roastStartingPoints(measuredProfiles, predictions, curveReliable);
     const predictedRange = predictions.length ? {
       low: Math.min(...predictions.map((point) => point.order)),
       high: Math.max(...predictions.map((point) => point.order))
@@ -475,15 +604,18 @@
     }
 
     const evidence = [
-      `匹配该机型共 ${all.length} 条本地或社区记录，其中 ${formal.length} 条已转为模型样本；${excluded} 条缺少可用研磨刻度或筛分质量数据，无法参与曲线。`,
+      `匹配该机型共 ${all.length} 条本地或社区记录，其中 ${formal.length} 条已转为模型样本；${excluded} 条缺少可用 PSD 数据，无法参与评估。`,
       legacyRecords || inferredRecords
         ? `${legacyRecords} 条旧格式记录、共 ${inferredRecords} 条记录经粒径区间映射或模型插补后纳入；这些记录会扩大预测区间，不会被当成精确实测。`
         : "纳入记录均为完整六段数据，无旧格式拆分或缺项插补。",
       qualityAdjusted ? `${qualityAdjusted} 条 D 级质量记录已降权纳入；质量回收偏差会降低其对中心曲线的影响。` : "未发现需要因严重质量偏差而降权的 D 级测次。",
-      `${k} 个有序刻度点，${formal.length - unorderable} 条测次有可用排序值；${unorderable} 条缺少排序值但仍用于 PSD 汇总，无法定位到刻度间隔。`,
-      k > 1 ? `${direction}；置信度加权后的相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。${k < 4 ? "方向和曲线形状仍是初步估计，间隔预测采用较宽概率区间。" : ""}` : "目前只有一个不同刻度点；无法从现有数据估计刻度响应方向。补测任意第二个刻度后即可开始区间预测。",
+      `${k} 个有序刻度点，${formal.length - unorderable} 条测次有可信排序值；${unorderable} 条无法安全排序但仍用于实测 PSD 汇总，其中 ${ambiguousOrderRecords} 条复合手动刻度因旧规则换算而被排除出曲线。`,
+      irregularGrinder
+        ? `刻度响应有明显反向变化（方向一致率 ${Math.round(directionConsistency * 100)}%）；已停止跨刻度插值，避免把不规律刻度伪装成可靠预测。`
+        : k > 1 ? `${direction}；置信度加权后的相邻变化方向一致率 ${Math.round(directionConsistency * 100)}%。${k < 4 ? "方向和曲线形状仍是初步估计，间隔预测采用较宽概率区间。" : ""}` : "目前只有一个不同刻度点；无法从现有数据估计刻度响应方向。补测任意第二个可信排序值后即可开始区间预测。",
       repeatNoise === null ? "暂无同刻度重复测次，无法估计重复测量离散度。" : `有 ${repeatedSettingCount} 个刻度具备重复测次；平均重复离散度 ${repeatNoise.toFixed(2)} 个筛分档；相邻刻度平均中心移动 ${meanNeighborShift.toFixed(2)} 档。离散或低质量测次已按注意力权重降低影响。`,
       protocolKeys.size > 1 ? `测量条件覆盖 ${protocolKeys.size} 种筛具/方法/时长组合，跨条件差异可能混入刻度效应。` : "标准筛具、筛分方法和时长未见多个组合造成的明显口径差异。",
+      "浅烘/深烘建议是相对细粗的起步值：依据粒径分布与粉床流动风险给出，不代表已经验证的杯测最佳值；烘焙度本身不能由 PSD 反推出。",
       looError === null ? "留一插值误差尚不可计算（需要至少 3 个有序刻度点）。" : `留一交叉验证平均误差 ${looError.toFixed(2)} 个筛分档。`
     ];
 
@@ -492,13 +624,14 @@
       inferredRecords, legacyRecords, qualityAdjustedRecords: qualityAdjusted,
       excludedRecords: excluded, qualityRejectedRecords: 0, unorderableRecords: unorderable, groups,
       candidates: mediumCandidates, bestObserved, nextTest, direction,
+      ambiguousOrderRecords, irregularGrinder, curveReliable, measuredProfiles, profileAssessments, roastAdvice,
       directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount,
       meanGroupDispersion: groups.length ? groups.reduce((sum, group) => sum + group.dispersion, 0) / groups.length : null,
       meanGroupConfidence: groups.length ? groups.reduce((sum, group) => sum + group.confidence, 0) / groups.length : null, evidence,
       predictions, bestPrediction: null, predictedRange, hydraulicEnvelope,
       bins: BIN_LABELS,
-      targetNotice: "研磨建议现在展示不同刻度的水力响应与注水情景范围，不给出由单一粒径占比推导的‘最佳刻度’。细粉、粗颗粒和中间粒径共同参与计算；候选带表示有数据支持的区间，不等同于杯测最佳区间。",
-      modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。低可信样本按质量等级、插补比例和同刻度离散度降低权重；离散度增加时保留概率预测并扩大区间。"
+      targetNotice: "建议值按本机可用刻度和对应 PSD 估算；浅烘通常从较细档开始、深烘从较粗档开始，中间烘焙从中位档开始，再按实际流速和杯测调整。没有杯测对照时，不把建议值称为最佳刻度。",
+      modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。细粉 35% 与粗粉 40% 是模型筛查阈值，用于提示观察流速、堵塞或萃取不足，不是普适的物理分界。低可信样本按质量等级、插补比例和同刻度离散度降低权重；离散度增加时保留概率预测并扩大区间。"
     };
   }
 

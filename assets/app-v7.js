@@ -1,11 +1,11 @@
 "use strict";
 
-// Grind-PSD 1.4.5 application shell; permission overrides load from permissions-v1.4.js.
+// Grind-PSD 1.4.6 application shell; permission overrides load from permissions-v1.4.js.
 const Core = window.GrindPSDCore;
 const Cloud = window.GrindPSDCloud;
 const GrinderDiagnostics = window.GrindPSDDiagnostics;
 const REPOSITORY = "zjcrop/Grind-PSD";
-const APP_VERSION = "1.4.5";
+const APP_VERSION = "1.4.6";
 const MAX_COMPARE_RECORDS = 10;
 const STORAGE_KEY = "grindPsdAppV5";
 const PREVIOUS_STORAGE_KEY = "grindPsdAppV4";
@@ -122,6 +122,7 @@ function freshWizard() {
     setting: "",
     settingTurns: null,
     settingOrder: null,
+    settingOrderSource: "unavailable",
     doseG: null,
     bean: "",
     roastLevel: "",
@@ -698,15 +699,25 @@ function renderGrinderDiagnostics() {
   if (!Array.isArray(selected)) selected = [models[0].brand, models[0].model];
   const report = GrinderDiagnostics.diagnose(diagnosticRecords, selected[0], selected[1]);
   const statusClass = report.grade.toLowerCase();
-  const candidateMarkup = report.predictedRange
+  const candidateMarkup = report.irregularGrinder
+    ? `<div class="grinder-highlight"><span>刻度规律评估</span><strong>不规律 · 停止跨刻度预测</strong><small>已发现粒径响应存在明显反向变化。以下只评估各个实测刻度，不把刻度标签的猜测当作排序依据。</small></div>`
+    : report.predictedRange
     ? `<div class="grinder-highlight"><span>粒径分布与注水情景共同模拟的刻度区间</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>区间内有 ${report.predictions.length} 个概率预测点；完整 PSD 经相对床层阻力与细粉迁移代理量计算，不从单一分区选“最佳”。</small></div>`
     : report.bestObserved
-      ? `<div class="grinder-highlight"><span>单点实测参考，尚不能推断刻度响应</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order))}</strong><small>再测一个不同刻度后即可开始区间概率预测。</small></div>`
+      ? `<div class="grinder-highlight"><span>${report.candidates.length ? "有序实测参考，暂不能推断刻度响应" : "刻度顺序不足，暂不做跨刻度预测"}</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order ?? "实测 PSD"))}</strong><small>${report.candidates.length ? "再测一个有序刻度后即可开始间隔概率预测。" : `目前有 ${report.measuredProfiles.length} 个实测刻度标签；填写由细到粗的可比较排序值后，才用于刻度曲线。`}</small></div>`
     : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
-  const rows = report.candidates.map((point) => {
-    const bars = point.pct.map((pct, i) => `<span title="${report.bins[i]} μm：${pct.toFixed(1)}%" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
-    return `<tr><td>${escapeHtml(point.setting || String(point.order))}</td><td>${point.n}</td><td>${(point.confidence * 100).toFixed(0)}%<small>离散度 ${point.dispersion.toFixed(2)} 档</small></td><td><div class="grinder-stacked-bar" role="img" aria-label="${point.pct.map((pct, i) => `${report.bins[i]} 微米 ${pct.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${point.middlePct.toFixed(1)}%</td><td>${point.tailPct.toFixed(1)}%</td></tr>`;
+  const rows = report.measuredProfiles.map((profile) => {
+    const pct = profile.vector.map((value) => value * 100);
+    const group = report.candidates.find((candidate) => candidate.setting.split(" / ").includes(profile.setting));
+    const bars = pct.map((value, i) => `<span title="${report.bins[i]} μm：${value.toFixed(1)}%" style="width:${Math.max(0, Math.min(100, value))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
+    return `<tr><td>${escapeHtml(profile.setting)}${profile.order === null ? "<small>未参与刻度插值</small>" : ""}</td><td>${profile.n}</td><td>${group ? `${(group.confidence * 100).toFixed(0)}%<small>离散度 ${group.dispersion.toFixed(2)} 档</small>` : "仅作实测评估"}</td><td><div class="grinder-stacked-bar" role="img" aria-label="${pct.map((value, i) => `${report.bins[i]} 微米 ${value.toFixed(1)}%`).join("，")}">${bars}</div></td><td>${((profile.vector[2] + profile.vector[3]) * 100).toFixed(1)}%</td><td>${((profile.vector[0] + profile.vector[5]) * 100).toFixed(1)}%</td></tr>`;
   }).join("");
+  const profileAssessmentMarkup = report.profileAssessments.length
+    ? `<div class="table-wrap"><table class="record-table"><thead><tr><th>实测刻度</th><th>细粉</th><th>堵塞/迁移风险</th><th>研磨风格概估</th><th>烘焙度适配倾向</th><th>流动与萃取提示</th></tr></thead><tbody>${report.profileAssessments.map((item) => `<tr><td>${escapeHtml(item.setting)}<small>${item.n} 条测次</small></td><td>${item.finePct.toFixed(1)}%</td><td>${escapeHtml(item.clogging)}<small>${item.migrationRisk.toFixed(0)} / 100</small></td><td>${escapeHtml(item.style)}</td><td>${escapeHtml(item.roastFit)}</td><td>${escapeHtml(item.note)}</td></tr>`).join("")}</tbody></table></div><p class="note">风险级别按本模型筛查阈值估算；如果实际滴滤时间显著变长、断流或滤纸积粉，应按堵塞风险处理。</p>`
+    : '<p class="note">目前没有可用 PSD 测次供风险评估。</p>';
+  const roastAdviceMarkup = report.roastAdvice.length
+    ? `<div class="grinder-roast-grid">${report.roastAdvice.map((item) => `<article><strong>${escapeHtml(item.roast)}</strong><span>起步刻度：${escapeHtml(item.setting || (item.order === null ? "暂无可比较刻度" : `排序值约 ${item.order.toFixed(2)}`))}</span><small>堵塞/迁移风险 ${escapeHtml(item.risk)}（${item.riskIndex.toFixed(0)}/100） · ${escapeHtml(item.style)}</small><p>${escapeHtml(item.hint)}</p></article>`).join("")}</div><p class="note">这是按本机测得 PSD 排出的粗略建议值，不是杯测最优值；模型不会仅凭粒径分布判断豆子的烘焙度。</p>`
+    : '<p class="note">数据不足，暂时无法给出烘焙度起步建议。</p>';
   const predictedRows = report.predictions.map((point) => {
     const tooltip = point.pct.map((pct, i) => `${report.bins[i]} μm：${pct.toFixed(1)}%（80%工作区间 ${point.intervals[i].low.toFixed(1)}–${point.intervals[i].high.toFixed(1)}%）`).join("；");
     const bars = point.pct.map((pct, i) => `<span title="${tooltip}" style="width:${Math.max(0, Math.min(100, pct))}%;background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></span>`).join("");
@@ -717,7 +728,9 @@ function renderGrinderDiagnostics() {
   }).join("");
   const nextTestMarkup = report.nextTest
     ? `<p>建议补测排序值约 <strong>${report.nextTest.order.toFixed(2)}</strong>（当前最大空档 ${report.nextTest.left}–${report.nextTest.right}），用于缩小这段预测区间。</p>`
-    : '<p>补测一个不同刻度后，即可开始估计两测点之间的响应和预测区间。</p>';
+    : report.irregularGrinder
+      ? '<p>先核对各实测刻度的细粗顺序，并确认筛分条件一致；在趋势恢复一致前，不建议用插值给未测刻度下结论。</p>'
+      : '<p>补测一个带明确细粗排序的不同刻度后，即可开始估计两测点之间的概率响应。</p>';
   container.innerHTML = `
     <div class="grinder-report-heading"><span class="grinder-grade ${statusClass}">${report.grade} · ${escapeHtml(report.gradeLabel)}</span><span>${report.formalRecords} 条纳入测次 / ${report.records} 条机型历史记录</span></div>
     <div class="grinder-diagnosis-grid">
@@ -725,13 +738,15 @@ function renderGrinderDiagnostics() {
       <section class="grinder-card"><h3>补测建议</h3>${nextTestMarkup}<p>${report.looError === null ? "交叉验证误差尚未估出，模型采用较宽先验预测区间。" : `留一预测误差：${report.looError.toFixed(2)} 个筛分档，并用于估计区间宽度。`}</p></section>
     </div>
     <section class="grinder-card grinder-distribution-card"><h3>已测刻度的六段 PSD</h3>
-      <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>排序值 / 刻度</th><th>测次</th><th>模型置信度 / 离散度</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="6">没有带排序值的标准六分段测次。</td></tr>'}</tbody></table></div>
+      <div class="table-wrap"><table class="record-table grinder-psd-table"><thead><tr><th>刻度</th><th>测次</th><th>模型置信度 / 离散度</th><th>粒径分布（由粗到细）</th><th>300–800 μm 主体</th><th>两端尾部</th></tr></thead><tbody>${rows || '<tr><td colspan="6">暂无可用的标准六分段测次。</td></tr>'}</tbody></table></div>
       <div class="grinder-legend">${report.bins.map((label, i) => `<span><i style="background:${["#d98e32", "#8ab4f8", "#6fbf73", "#ffd166", "#e05d5d", "#c77dff"][i]}"></i>${label} μm</span>`).join("")}</div>
     </section>
+    <section class="grinder-card"><h3>冲煮风险与研磨风格</h3>${profileAssessmentMarkup}</section>
+    <section class="grinder-card"><h3>烘焙度起步建议 <small>按本机实测分布估值</small></h3>${roastAdviceMarkup}</section>
     <section class="grinder-card grinder-distribution-card"><h3>未测刻度的概率与水力响应 <small>相邻点插值 · 80%工作预测区间</small></h3>
       ${report.predictions.length
         ? `<div class="table-wrap"><table class="record-table grinder-forecast-table"><thead><tr><th>预测刻度</th><th>预测 PSD（由粗到细）</th><th>表面积加权粒径 / 相对阻力</th><th>细粉迁移倾向（轻柔 / 常规 / 较强）</th><th>300–800 μm 主体</th></tr></thead><tbody>${predictedRows}</tbody></table></div><p class="note">相对阻力根据完整粒径分布估算；三种注水扰动是情景比较，不代表实测流速或萃取率。悬停分布条可查看六段中心预测与边际区间；每次模拟样本均保持六段合计 100%。</p>`
-        : '<p class="note">至少需要两个不同刻度点才能对未测间隔进行预测。当前仍展示已有实测 PSD。</p>'}
+        : `<p class="note">${report.irregularGrinder ? "检测到刻度响应不规律，已关闭跨刻度预测。请按实测刻度的 PSD 与风险评语判断。" : "至少需要两个可信排序的不同刻度点才能对未测间隔进行概率预测。当前仍展示已有实测 PSD。"}</p>`}
     </section>
     <details class="grinder-evidence"><summary>诊断依据与限制</summary><ul>${report.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><p>${escapeHtml(report.targetNotice)}</p><p>${escapeHtml(report.modelNotice)}</p></details>`;
 }
@@ -1464,7 +1479,7 @@ function renderWizardStep2() {
     button.addEventListener("click", () => {
       $("dialInput").value = button.dataset.dial;
       const order = Core.deriveSettingOrder(button.dataset.dial);
-      if (order !== null) $("dialOrderInput").value = order;
+      $("dialOrderInput").value = order === null ? "" : order;
     });
   });
   setTimeout(() => $("dialInput").focus(), 40);
@@ -1513,6 +1528,9 @@ function readWizardStep2() {
   state.wizard.setting = setting;
   state.wizard.settingTurns = settingTurns === null ? null : Core.round(settingTurns, 3);
   state.wizard.settingOrder = orderText === "" ? Core.deriveSettingOrder(setting) : Number(orderText);
+  state.wizard.settingOrderSource = orderText !== ""
+    ? "manual"
+    : state.wizard.settingOrder === null ? "unavailable" : "numeric-label";
   state.wizard.bean = Core.cleanText($("beanInput").value, 120);
   state.wizard.roastLevel = Core.cleanText($("roastInput").value, 40);
   state.wizard.durationSec = Core.toNumber($("durationInput").value);
@@ -1637,6 +1655,7 @@ async function saveWizardRecord() {
       setting: state.wizard.setting,
       settingTurns: state.wizard.settingTurns,
       settingOrder: state.wizard.settingOrder,
+      settingOrderSource: state.wizard.settingOrderSource,
       color: state.wizard.color
     },
     sample: {
@@ -1671,6 +1690,7 @@ async function saveWizardRecord() {
     setting: record.grinder.setting,
     settingTurns: record.grinder.settingTurns,
     settingOrder: record.grinder.settingOrder,
+    settingOrderSource: record.grinder.settingOrderSource,
     bean: record.sample.bean,
     roastLevel: record.sample.roastLevel,
     durationSec: record.sample.durationSec,

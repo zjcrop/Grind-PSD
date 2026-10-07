@@ -11,6 +11,7 @@ const record = Core.createRecord({
     setting: "2圈+5格",
     settingTurns: 2.25,
     settingOrder: 2.005,
+    settingOrderSource: "manual",
     color: "#d98e32"
   },
   sample: {
@@ -95,7 +96,8 @@ assert.equal(poorRecovery.metrics.quality.grade, "D");
 assert.ok(Core.validatePublicRecord(poorRecovery).errors.some((message) => message.includes("10%")));
 
 assert.equal(Core.deriveSettingOrder("18"), 18);
-assert.equal(Core.deriveSettingOrder("2圈+5格"), 2.005);
+assert.equal(Core.deriveSettingOrder("2圈+5格"), null);
+assert.equal(Core.deriveSettingOrder("18.5"), 18.5);
 assert.equal(Core.deriveSettingOrder("无级刻度"), null);
 assert.ok(!Core.recordGroupKey(record).includes("\u001f"));
 

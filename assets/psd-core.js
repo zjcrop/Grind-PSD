@@ -242,13 +242,8 @@
 
   function deriveSettingOrder(setting) {
     const text = cleanText(setting, 80);
-    const matches = text.match(/-?\d+(?:\.\d+)?/g);
-    if (!matches || !matches.length) return null;
-    if (matches.length === 1) return Number(matches[0]);
-    return round(matches.reduce((total, part, index) => {
-      const value = Number(part);
-      return total + value / (10 ** (index * 3));
-    }, 0), 6);
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) return null;
+    return Number(text);
   }
 
   function makeRecordId() {
@@ -297,6 +292,18 @@
     const settingOrder = rawSettingOrder !== "" && rawSettingOrder !== null && rawSettingOrder !== undefined && Number.isFinite(settingOrderInput)
       ? settingOrderInput
       : deriveSettingOrder(input.grinder?.setting);
+    const rawOrderSource = input.grinder?.settingOrderSource;
+    const settingLabel = cleanText(input.grinder?.setting, 80);
+    const settingParts = settingLabel.match(/-?\d+(?:\.\d+)?/g) || [];
+    const settingOrderSource = ["manual", "numeric-label", "legacy-unknown", "composite-inferred", "unavailable"].includes(rawOrderSource)
+      ? rawOrderSource
+      : settingOrder === null
+        ? "unavailable"
+        : settingParts.length > 1
+          ? "composite-inferred"
+        : deriveSettingOrder(input.grinder?.setting) !== null && Math.abs(deriveSettingOrder(input.grinder?.setting) - settingOrder) < 1e-9
+          ? "numeric-label"
+          : "legacy-unknown";
     const rawSettingTurns = input.grinder?.settingTurns;
     const settingTurnsInput = Number(rawSettingTurns);
     const settingTurns = rawSettingTurns !== "" && rawSettingTurns !== null && rawSettingTurns !== undefined
@@ -329,6 +336,7 @@
         setting: cleanText(input.grinder?.setting, 80),
         settingTurns,
         settingOrder,
+        settingOrderSource,
         color: normalizeHexColor(input.grinder?.color)
       },
       sample,
@@ -347,11 +355,22 @@
   function normalizeRecord(input) {
     if (!input || typeof input !== "object") return null;
     if (input.standardId && input.standardId !== STANDARD_ID && !String(input.standardId).startsWith("custom-") && input.standardId !== "grind-psd-sieve-v1") return null;
+    const sourceGrinder = input.grinder || {};
+    const settingLabel = cleanText(sourceGrinder.setting, 80);
+    const numericParts = settingLabel.match(/-?\d+(?:\.\d+)?/g) || [];
+    const normalizedGrinder = {
+      ...sourceGrinder,
+      settingOrderSource: sourceGrinder.settingOrderSource || (
+        numericParts.length > 1 ? "composite-inferred" :
+          sourceGrinder.settingOrder !== null && sourceGrinder.settingOrder !== undefined && settingLabel && deriveSettingOrder(settingLabel) === null
+            ? "legacy-unknown" : undefined
+      )
+    };
     const record = createRecord({
       ...input,
       id: input.id,
       user: input.user || {},
-      grinder: input.grinder || {},
+      grinder: normalizedGrinder,
       sample: input.sample || {},
       weightsGrams: input.weightsGrams || input.weights || {},
       sieveProfile: input.sieveProfile,
