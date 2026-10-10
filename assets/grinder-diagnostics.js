@@ -165,20 +165,21 @@
   }
 
   function settingOrderInfo(record) {
-    const order = finite(record.grinder?.settingOrder);
-    if (order === null) return { order: null, confidence: 0, reason: "未提供可比较排序值" };
     const label = String(record.grinder?.setting || "").trim();
+    const order = finite(record.grinder?.settingOrder);
     const source = record.grinder?.settingOrderSource;
-    const parts = label.match(/-?\d+(?:\.\d+)?/g) || [];
-    if (source === "manual") return { order, confidence: 1, reason: "手动排序" };
-    if (source === "composite-inferred" || (parts.length > 1 && source !== "manual")) {
-      return { order: null, confidence: 0, reason: "复合刻度被旧规则换算，需手动排序" };
+    if (!label) return { order: null, confidence: 0, reason: "未填写实际刻度标签" };
+    if (order === null) return { order: null, confidence: 0, reason: "缺少可验证的刻度排序坐标" };
+    if (source === "manual") return { order, confidence: 1, reason: "人工确认的机械刻度排序" };
+    if (source === "composite-inferred") return { order: null, confidence: 0, reason: "复合刻度不能自动换算排序" };
+    // Plain numeric scales may be ordered ONLY when the order coordinate is
+    // identical to the raw setting and the provenance explicitly says so.
+    // Historic values such as setting=9, settingOrder=10 cannot be inferred.
+    if (source === "numeric-label" && /^-?\\d+(?:\\.\\d+)?$/.test(label) &&
+        Math.abs(Number(label) - order) < 1e-9) {
+      return { order, confidence: 0.9, reason: "真实单一数字刻度，与排序坐标一致" };
     }
-    if (source === "numeric-label" || (parts.length === 1 && /^-?\d+(?:\.\d+)?$/.test(label))) {
-      return { order, confidence: 0.9, reason: "单一数字刻度" };
-    }
-    if (source === "unavailable") return { order: null, confidence: 0, reason: "未提供可比较排序值" };
-    return { order, confidence: 0.45, reason: "历史排序来源不明" };
+    return { order: null, confidence: 0, reason: "刻度排序来源未知或与原始刻度不一致；保留实测，不进入拟合" };
   }
 
   function settingGroups(records) {
