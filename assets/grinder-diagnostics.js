@@ -172,6 +172,7 @@
     if (order === null) return { order: null, confidence: 0, reason: "缺少可验证的刻度排序坐标" };
     if (source === "manual") return { order, confidence: 1, reason: "人工确认的机械刻度排序" };
     if (source === "composite-inferred") return { order: null, confidence: 0, reason: "复合刻度不能自动换算排序" };
+    if ((label.match(/-?\\d+(?:\\.\\d+)?/g) || []).length > 1 && source !== "manual") return { order: null, confidence: 0, reason: "复合刻度缺少人工确认的机械排序" };
     // Plain numeric scales may be ordered ONLY when the order coordinate is
     // identical to the raw setting and the provenance explicitly says so.
     // Historic values such as setting=9, settingOrder=10 cannot be inferred.
