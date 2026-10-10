@@ -418,7 +418,7 @@
       const near=side==="before"?groups[1]:groups.at(-2);
       const sign=side==="before"?-1:1;
       const slope=edge.vector.map((v,i)=>(v-near.vector[i])/(edge.order-near.order));
-      const steps=Math.min(3,Math.floor(Math.abs(edge.order-near.order)*1.5));
+      const steps=groups.length>=4 ? 3 : 2;
       for(let n=1;n<=steps;n++){
         const order=edge.order+sign*n;
         if(order<0||groups.some(g=>g.order===order))continue;
