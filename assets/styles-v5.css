@@ -3076,16 +3076,33 @@ main {
   margin: 12px 0;
 }
 
+/* Grinder roast recommendation cards follow the site's dark theme.
+   Never fall back to an undefined light --surface with inherited pale text. */
 .grinder-roast-grid article {
   display: grid;
   gap: 8px;
   padding: 14px;
-  border: 1px solid var(--line, #ded8cf);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--surface, #fffdf9);
+  background: var(--panel-2);
+  color: var(--text);
 }
 
-.grinder-roast-grid article > strong { font-size: 1rem; }
-.grinder-roast-grid article > span { font-weight: 650; }
-.grinder-roast-grid article small { color: var(--muted, #68645f); }
-.grinder-roast-grid article p { margin: 0; }
+.grinder-roast-grid article > strong {
+  color: var(--accent-bright);
+  font-size: 1rem;
+}
+
+.grinder-roast-grid article > span {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.grinder-roast-grid article small {
+  color: var(--muted);
+}
+
+.grinder-roast-grid article p {
+  margin: 0;
+  color: var(--muted);
+}
