@@ -403,13 +403,47 @@
     };
   }
 
+  function extrapolateEdges(groups, records, baseSigma) {
+    if (groups.length < 3) return [];
+    const valid = records.filter(r => r.grinder?.settingOrderSource === "numeric-label" &&
+      Number.isInteger(Number(r.grinder.setting)) && String(r.grinder.setting) === String(r.grinder.settingOrder));
+    if (groups.some(g => !Number.isInteger(g.order) || !valid.some(r => Number(r.grinder.setting) === g.order))) return [];
+    const shifts = groups.slice(1).map((g,i)=>g.center-groups[i].center);
+    if (Math.abs(shifts.reduce((a,b)=>a+Math.sign(b),0)) < 0.65*shifts.length) return [];
+    const gaps=groups.slice(1).map((g,i)=>g.order-groups[i].order);
+    if(Math.max(...gaps)>Math.max(3,2*Math.min(...gaps))) return [];
+    const results=[];
+    for(const side of ["before","after"]) {
+      const edge=side==="before"?groups[0]:groups.at(-1);
+      const near=side==="before"?groups[1]:groups.at(-2);
+      const sign=side==="before"?-1:1;
+      const slope=edge.vector.map((v,i)=>(v-near.vector[i])/(edge.order-near.order));
+      const steps=groups.length>=4 ? 3 : 2;
+      for(let n=1;n<=steps;n++){
+        const order=edge.order+sign*n;
+        if(order<0||groups.some(g=>g.order===order))continue;
+        const distance=2*(1-Math.exp(-n/2));
+        const raw=edge.vector.map((v,i)=>Math.max(1e-6,v+slope[i]*sign*distance));
+        const total=raw.reduce((a,b)=>a+b,0);
+        const vector=raw.map(v=>v/total);
+        const sigma=vector.map((_,i)=>Math.min(0.35,Math.max(baseSigma[i],0.06)*(1+n*0.75+(1-edge.confidence)*1.2+edge.imputationRate)));
+        const interval=logisticNormalInterval(vector,sigma,"edge/"+side+"/"+order);
+        results.push({order,setting:String(order),side,kind:"extrapolated",n,anchorOrder:edge.order,
+          pct:vector.map(v=>v*100),intervals:interval.map(v=>({low:v.low*100,high:v.high*100})),
+          uncertaintyPct:sigma.reduce((a,b)=>a+b,0)/sigma.length*100,
+          hydraulics:hydraulicResponse(vector)});
+      }
+    }
+    return results.sort((a,b)=>a.order-b.order);
+  }
+
   function roastStartingPoints(measuredProfiles, predictions, curveReliable) {
     // Do not manufacture distinct roast recommendations from one measured node.
     // A grinder setting is a machine-specific identity, never a chronological rank.
     const anchored = measuredProfiles.filter(point => point.order !== null);
     if (anchored.length < 2 || !curveReliable) return [];
     const pool = [...anchored, ...predictions.map(point => ({
-      setting: null, order: point.order, n: 0,
+      setting: point.kind === "extrapolated" ? point.setting : null, kind:point.kind || "interpolated", order: point.order, n: 0,
       vector: point.pct.map(share => share / 100),
       center: ordinalCenter(point.pct.map(share => share / 100)),
       hydraulics: point.hydraulics
@@ -433,8 +467,8 @@
       return {
         roast: recipe.roast, setting: point.setting,
         order: point.order,
-        settingRange: left.setting === right.setting ? String(left.setting) : String(left.setting) + " – " + String(right.setting),
-        rangeType: left.setting === right.setting ? "实测刻度参考" : "两个实测刻度之间的候选区间（未校准最佳值）",
+        settingRange: point.kind === "extrapolated" ? String(point.setting)+"（外推）" : left.setting === right.setting ? String(left.setting) : String(left.setting) + " – " + String(right.setting),
+        rangeType: point.kind === "extrapolated" ? "边界外推探索，超出已测刻度，尚未验证" : left.setting === right.setting ? "实测刻度参考" : "两个实测刻度之间的候选区间（未校准最佳值）",
         risk: risk.clogging, riskIndex: risk.migrationRisk,
         style: risk.style, hint: recipe.hint, modeled: !point.setting
       };
@@ -591,7 +625,10 @@
         });
       });
     });
-    const roastAdvice = roastStartingPoints(measuredProfiles, predictions, curveReliable);
+    const extrapolations = curveReliable && k >= 3 && protocolKeys.size === 1
+      ? extrapolateEdges(fittedGroups, formal, BIN_KEYS.map((_,i)=>Math.max(baseUncertainty,looSigma[i],repeatSigma[i])))
+      : [];
+    const roastAdvice = roastStartingPoints(measuredProfiles, [...predictions, ...extrapolations], curveReliable);
     const predictedRange = predictions.length ? {
       low: Math.min(...predictions.map((point) => point.order)),
       high: Math.max(...predictions.map((point) => point.order))
@@ -635,6 +672,7 @@
       ambiguousOrderRecords, irregularGrinder, curveReliable, measuredProfiles, profileAssessments, roastAdvice,
       directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount,
       meanGroupDispersion: groups.length ? groups.reduce((sum, group) => sum + group.dispersion, 0) / groups.length : null,
+      extrapolations, extrapolationNotice: extrapolations.length ? '外推仅支持经过验证的整数实际刻度；超出实测边界，区间不确定性增大，不能当作实测。' : '不满足刻度来源、节点数量或稳定性要求，故不进行双向外推。',
       meanGroupConfidence: groups.length ? groups.reduce((sum, group) => sum + group.confidence, 0) / groups.length : null, evidence,
       predictions, bestPrediction: null, predictedRange, hydraulicEnvelope,
       bins: BIN_LABELS,

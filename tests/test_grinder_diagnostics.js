@@ -47,6 +47,11 @@ assert.equal(report.nextTest.order, 1.5);
 assert.equal(report.candidates[0].pct.length, 6);
 assert.ok(Math.abs(report.candidates[2].pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8);
 assert.equal(report.predictions.length, 12);
+assert.equal(report.extrapolations.length, 4, "three positions on positive edge and one non-negative on low edge");
+assert.deepEqual(report.extrapolations.map(p=>p.order), [-2,-1,0,6,7,8].filter(v=>v>=0), "physical negative settings excluded");
+assert.ok(report.extrapolations.every(p=>Math.abs(p.pct.reduce((a,b)=>a+b,0)-100)<1e-8));
+assert.ok(report.extrapolations.every(p=>p.intervals.every(x=>x.low>=0&&x.high<=100)));
+
 assert.ok(report.predictions.every((point) => Math.abs(point.pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8));
 assert.ok(report.predictions.every((point) => point.intervals.every((range) => range.low >= 0 && range.high <= 100 && range.low <= range.high)));
 assert.ok(report.predictions.every((point) => point.hydraulics.scenarios.length === 3));
@@ -126,6 +131,7 @@ const zigzagReport = Diagnostics.diagnose(zigzag, "Test", "Burr A");
 assert.equal(zigzagReport.grade, "M2");
 assert.equal(zigzagReport.irregularGrinder, true);
 assert.equal(zigzagReport.predictions.length, 0);
+assert.equal(zigzagReport.extrapolations.length, 0);
 assert.match(zigzagReport.gradeLabel, /不规律/);
 assert.equal(zigzagReport.profileAssessments.length, 4, "irregular settings still receive measured PSD assessments");
 
@@ -136,6 +142,7 @@ const composite = [
 const compositeReport = Diagnostics.diagnose(composite, "Test", "Burr A");
 assert.equal(compositeReport.groups.length, 0, "composite labels are never numerically guessed");
 assert.equal(compositeReport.predictions.length, 0);
+assert.equal(compositeReport.extrapolations.length, 0);
 assert.equal(compositeReport.ambiguousOrderRecords, 2);
 assert.equal(compositeReport.measuredProfiles.length, 2);
 assert.equal(compositeReport.roastAdvice.length, 0, "never recommend roast settings without verified order");

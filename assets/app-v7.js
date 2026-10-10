@@ -733,7 +733,8 @@ function renderGrinderDiagnostics() {
       : '<p>补测一个带明确细粗排序的不同刻度后，即可开始估计两测点之间的概率响应。</p>';
   const matrixNodes = [
     ...report.measuredProfiles.map(p => ({source:"实测",setting:p.setting,order:p.order,vector:p.vector,hydraulics:p.hydraulics,n:p.n})),
-    ...report.predictions.map(p => ({source:"预测",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0}))
+    ...report.predictions.map(p => ({source:"预测",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0})),
+    ...(report.extrapolations || []).map(p => ({source:"边界外推",setting:p.setting+"（预测）",order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0}))
   ].sort((a,b) => (a.order===null?Infinity:a.order)-(b.order===null?Infinity:b.order) || (a.source==="实测"?-1:1));
   const matrixRows = matrixNodes.map(p => {
     const pct = p.vector.map(v=>(100*v).toFixed(1));
@@ -747,6 +748,7 @@ function renderGrinderDiagnostics() {
     <p><strong>相对水力代理：</strong>R=(500/d₃₂)²×[1+1.5p₍＜180₎+0.6√(p₍＜300₎p₍≥800₎)]。这是工程风险代理，不是经验证的 Darcy 渗透率或绝对流速。</p>
     <p><strong>粒径传质候选公式（尚未校准，不参与当前刻度排名）：</strong>τᵢ=(dᵢ/2)²/(κD_eff)，qᵢ(t)=1−exp[−(t/τᵢ)^β]，q̄=Σpᵢqᵢ，H=Σpᵢ(qᵢ−q̄)²。细粉接近自身可萃取上限后，后续边际溶出应趋零，而非无限线性累计。κ、D_eff、β 必须由同豆分级冲煮、EY/TDS 与时间序列实验校准；不能将 qᵢ 当作整杯 EY，不能把颗粒相对耗尽直接等同感官过萃。</p>
     <p><strong>烘焙与发酵：</strong>当前仅是烘焙粗细起步先验，未由杯测标定成真实最优刻度。发酵强度与豆体结构可及性必须分别入模；“强发酵”不是可直接替换成更高扩散系数的证据。缺少品鉴/结构实测时不输出假精度。</p>
+    <p><strong>边界外推：</strong>至少三个经确认排序的整数刻度，跨刻度方向基本一致、测量规程一致时，使用临边两个观测 PSD 向量估计局部斜率 sᵢ=(pᵢ,edge−pᵢ,neighbor)/(g_edge−g_neighbor)。外推距离 n 使用阻尼位移 Δ=2(1−e^(−n/2))，pᵢ,raw=max(ε,pᵢ,edge+sᵢ·sign·Δ)，归一化至六段总和100%。最远不超过三个连续整数刻度（三个已测节点时最多两个）；超过实测端点后的整数档位是否实际存在，须由用户核实。置信区间随距离、插补比例和测量可靠度扩大；这属于受限情景模拟，并未验证磨豆机实际响应。</p>
     <p><strong>预测方法：</strong>当前在已验证相邻刻度排序坐标内作 PSD 分量线性插值，80%区间由先验误差、留一误差、重复离散、旧档插补等共同影响；模型不在两端外推。排序坐标不是可直接设定的机器档位，必须与厂商实际刻度一一映射后才能推荐。</p>
     <p><strong>模型约束：</strong>预测各档质量份额非负且总和100%；不允许调整实测节点位置或为了曲线单调而篡改实测 PSD。异常反向变化应保留并提示复测，样本不足时不做连续刻度结论。</p>`;
   container.innerHTML = `
@@ -760,8 +762,9 @@ function renderGrinderDiagnostics() {
       <p class="note">目前烘焙推荐采用未杯测校准的本机粗细先验，不能宣称最优。浅烘和极浅烘还需考察细粉提前耗尽与颗粒间差异；强发酵需独立考虑感官强度和豆体结构。</p>
       ${roastAdviceMarkup}
     </section>
-    <section class="grinder-card grinder-distribution-card"><h3>第三步｜实测 + 预测叠加 PSD 矩阵</h3><p class="note">以真实刻度为锚点，预测仅落在可验证的相邻刻度内部；“排序坐标”不是机器实际刻度，严禁直接当作可用档位。</p>
+    <section class="grinder-card grinder-distribution-card"><h3>第三步｜实测 + 预测叠加 PSD 矩阵</h3><p class="note">以真实刻度为锚点，区间内为插值；边界之外在证据足够时提供保守外推，并分别标注；“排序坐标”不是机器实际刻度，严禁直接当作可用档位。</p>
       <div class="table-wrap"><table class="record-table"><thead><tr><th>来源</th><th>实际刻度 / 模型坐标</th><th>测次</th>${report.bins.map(x=>`<th>${x} μm</th>`).join("")}<th>d₃₂ μm</th><th>相对阻力</th></tr></thead><tbody>${matrixRows || '<tr><td colspan="11">无可展示的实测或预测节点。</td></tr>'}</tbody></table></div>
+      <p class="note">${escapeHtml(report.extrapolationNotice || "")} 边界外推 ${(report.extrapolations || []).length} 个节点，向前/向后最多三个经确认的整数刻度；外推预测并非测量值，不能据此确认真实最佳刻度。</p>
       ${report.predictions.length? `<p class="note">预测节点共 ${report.predictions.length} 个，非实测；区间存在统计不确定性，表中仅列中心估值。</p>`:"<p class='note'>目前刻度节点数量或有效排序依据不足，仅展示实测矩阵，不制造预测数据。</p>"}
     </section>
     <section class="grinder-card"><h3>第四步｜诊断依据、判断方法与限制</h3>
