@@ -47,10 +47,37 @@ assert.equal(report.nextTest.order, 1.5);
 assert.equal(report.candidates[0].pct.length, 6);
 assert.ok(Math.abs(report.candidates[2].pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8);
 assert.equal(report.predictions.length, 12);
-assert.equal(report.extrapolations.length, 4, "three positions on positive edge and one non-negative on low edge");
-assert.deepEqual(report.extrapolations.map(p=>p.order), [-2,-1,0,6,7,8].filter(v=>v>=0), "physical negative settings excluded");
+assert.ok(report.extrapolations.length > 4, "continuous surface must extend farther than fixed 3-click forecast when justified");
+assert.ok(report.extrapolations.some(p=>p.order >= 9), "forecasts beyond the previously fixed boundary");
+assert.ok(report.extrapolations.every(p=>p.order >= 0), "unverified negative integer labels excluded");
+assert.ok(report.extrapolations.every(p=>p.modelReliability >= 0.25 && p.modelReliability <= 1));
+assert.ok(report.extrapolations.every(p=>Number.isInteger(p.order)), "do not silently infer fractional ticks");
+assert.ok(report.extrapolations.every(p=>p.kind === "extrapolated"));
+assert.ok(report.extrapolations.every(p=>p.pct.every(v=>v >= -1e-9)));
 assert.ok(report.extrapolations.every(p=>Math.abs(p.pct.reduce((a,b)=>a+b,0)-100)<1e-8));
 assert.ok(report.extrapolations.every(p=>p.intervals.every(x=>x.low>=0&&x.high<=100)));
+assert.ok(report.extrapolations.filter(p=>p.side==="after").every((point,i,arr)=>i===0||point.modelReliability < arr[i-1].modelReliability));
+assert.ok(report.extrapolations.filter(p=>p.side==="after").every((point,i,arr)=>i===0||point.uncertaintyPct >= arr[i-1].uncertaintyPct));
+assert.deepEqual(report.surfaceDetail.thresholdsUm,[180,300,500,800,1000]);
+const surface=Diagnostics.makeCdfSurface(report.groups);
+assert.ok(surface);
+for(const observed of report.groups){
+  const recovered=surface.evaluate(observed.order);
+  assert.ok(recovered.every((x,i)=>Math.abs(x-observed.vector[i])<1e-9),"surface retains observed knots exactly");
+}
+for(let g=-10;g<=50;g+=0.25){
+  const profile=surface.evaluate(g);
+  assert.ok(profile.every(x=>Number.isFinite(x)&&x>=-1e-10&&x<=1+1e-10));
+  assert.ok(Math.abs(profile.reduce((a,b)=>a+b,0)-1)<1e-8);
+  const cdfs=profile.slice().reverse().slice(0,5).map((_,i)=>profile.slice(5-i).reduce((a,b)=>a+b,0));
+  assert.ok(cdfs.every((value,i)=>i===0||value+1e-10>=cdfs[i-1]),"CDF must increase across thresholds");
+}
+const far1=surface.evaluate(1000), far2=surface.evaluate(2000);
+assert.ok(far1.every((v,i)=>Math.abs(v-far2[i])<1e-6),"outward curve approaches a bounded PSD limit");
+for(let knot of [2,3,4]){
+  const eps=1e-4,left=surface.evaluate(knot-eps),at=surface.evaluate(knot),right=surface.evaluate(knot+eps);
+  assert.ok(left.every((v,i)=>Math.abs((at[i]-v)/eps-(right[i]-at[i])/eps)<0.005),"surface first derivative should be continuous at observed knots");
+}
 
 assert.ok(report.predictions.every((point) => Math.abs(point.pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8));
 assert.ok(report.predictions.every((point) => point.intervals.every((range) => range.low >= 0 && range.high <= 100 && range.low <= range.high)));
