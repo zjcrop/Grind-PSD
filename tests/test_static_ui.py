@@ -307,7 +307,7 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("GrinderDiagnostics.diagnose(diagnosticRecords", script)
         self.assertIn("烘焙度起步建议", script)
         self.assertIn("烘焙度适配倾向", script)
-        self.assertIn("检测到刻度响应不规律，已关闭跨刻度预测", script)
+        self.assertIn("第三步｜实测 + 预测叠加 PSD 矩阵", script)
         self.assertIn("复合手动刻度", html)
 
     def test_v12_measurement_home_and_adaptive_record_detail(self):
