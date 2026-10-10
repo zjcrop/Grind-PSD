@@ -599,10 +599,15 @@
       { roast: "浅烘", quantile: 0.72, hint: "偏细起步，但不得忽略细粉提前耗尽和主体颗粒差异。" },
       { roast: "极浅烘", quantile: 0.86, hint: "可考虑更细；仅当主体萃取收益超过堵塞和萃取不均风险时采用。缺少 EY/品鉴校准时不能称为最优。" }
     ];
-    const sorted = [...pool].sort((a, b) => a.center - b.center);
+    const centers = pool.map(p => p.center);
+    const minimum = Math.min(...centers), maximum = Math.max(...centers);
     return recipes.map(recipe => {
-      const target = (sorted.length - 1) * recipe.quantile;
-      const point = sorted[Math.round(target)];
+      // Select by a continuous PSD response coordinate rather than the number
+      // of prediction rows; dense interpolation cannot skew the six grades.
+      const target = minimum + (maximum - minimum) * recipe.quantile;
+      const point = pool.reduce((best, candidate) =>
+        Math.abs(candidate.center-target) < Math.abs(best.center-target)
+          ? candidate : best);
       const anchors = [...anchored].sort((a, b) => a.order - b.order);
       const left = [...anchors].reverse().find(x => x.order <= point.order) || anchors[0];
       const right = anchors.find(x => x.order >= point.order) || anchors.at(-1);
@@ -649,6 +654,7 @@
     const groups = settingGroups(usable);
     const fittedGroups = attentionSmoothGroups(groups);
     const k = fittedGroups.length;
+    const cdfSurface = makeCdfSurface(groups);
     const meanNeighborShift = k > 1
       ? fittedGroups.slice(1).reduce((sum, group, i) => sum + Math.abs(group.center - fittedGroups[i].center), 0) / (k - 1)
       : null;
@@ -747,7 +753,7 @@
     gaps.forEach(({ width, left, right }) => {
       [0.25, 0.5, 0.75].forEach((t) => {
         const order = left.order + width * t;
-        const vector = interpolate(left, right, order);
+        const vector = cdfSurface ? cdfSurface.evaluate(order) : interpolate(left, right, order);
         const gapInflation = typicalGap ? Math.min(2.5, Math.sqrt(width / typicalGap)) : 1;
         const curvature = 2 * Math.sqrt(t * (1 - t));
         const imputationInflation = 1 + ((1 - t) * left.imputationRate + t * right.imputationRate) * 1.25;
@@ -768,8 +774,11 @@
         });
       });
     });
-    const extrapolations = curveReliable && k >= 3 && protocolKeys.size === 1
-      ? extrapolateEdges(fittedGroups, formal, BIN_KEYS.map((_,i)=>Math.max(baseUncertainty,looSigma[i],repeatSigma[i])))
+    const extrapolations = curveReliable && k >= 3 && protocolKeys.size === 1 && cdfSurface
+      ? extrapolateEdges(groups, formal,
+        BIN_KEYS.map((_,i)=>Math.max(baseUncertainty,looSigma[i],repeatSigma[i])),{
+          surface:cdfSurface,cvError:looError,consistency:directionConsistency,protocolNoise:protocolKeys.size>1
+        })
       : [];
     const roastAdvice = roastStartingPoints(measuredProfiles, [...predictions, ...extrapolations], curveReliable);
     const predictedRange = predictions.length ? {
@@ -815,10 +824,14 @@
       ambiguousOrderRecords, irregularGrinder, curveReliable, measuredProfiles, profileAssessments, roastAdvice,
       directionConsistency, repeatNoise, meanNeighborShift, noiseRatio, looError, repeatedSettingCount,
       meanGroupDispersion: groups.length ? groups.reduce((sum, group) => sum + group.dispersion, 0) / groups.length : null,
-      extrapolations, extrapolationNotice: extrapolations.length ? '外推仅支持经过验证的整数实际刻度；超出实测边界，区间不确定性增大，不能当作实测。' : '不满足刻度来源、节点数量或稳定性要求，故不进行双向外推。',
+      cdfSurfaceModel:"连续 CDF 五边界 + 分段保形三次 Hermite + logit 有界外推",
+      extrapolations, extrapolationNotice: extrapolations.length
+        ? "已按刻度、实测节点可靠度、留一误差及预测距离自适应决定延伸范围；可靠度分数仅为模型内部证据指标，不是统计置信概率。实际机械刻度上下限尚未验证，越界刻度需复核。"
+        : "未满足经验证的整数刻度、至少三个测点、方向一致性、协议一致性或可靠度要求；不应强行进行边界外推。",
       meanGroupConfidence: groups.length ? groups.reduce((sum, group) => sum + group.confidence, 0) / groups.length : null, evidence,
       predictions, bestPrediction: null, predictedRange, hydraulicEnvelope,
       bins: BIN_LABELS,
+      surfaceDetail: cdfSurface ? { thresholdsUm:cdfSurface.thresholdsUm, medianSpacing:cdfSurface.medianSpacing, saturationScale:cdfSurface.saturationScale, observedRange:[groups[0].order,groups.at(-1).order] } : null,
       targetNotice: "建议值按本机可用刻度和对应 PSD 估算；浅烘通常从较细档开始、深烘从较粗档开始，中间烘焙从中位档开始，再按实际流速和杯测调整。没有杯测对照时，不把建议值称为最佳刻度。",
       modelNotice: "水力指标是基于粒径代表值、表面积加权粒径、细粉/粗粉混合项和注水情景的相对代理量，不是绝对渗透率、真实流速或 CFD；表格水力值从中心 PSD 计算，未单独校准区间。轻柔/常规/较强扰动以相对流量与喷流能量表示，用于比较模型响应；系数尚未由本项目滤杯实测校准。实际压降、接触时间、细粉迁移与通道化还受粉床高度、滤纸、滤杯、注水位置和脉冲节奏影响。细粉 35% 与粗粉 40% 是模型筛查阈值，用于提示观察流速、堵塞或萃取不足，不是普适的物理分界。低可信样本按质量等级、插补比例和同刻度离散度降低权重；离散度增加时保留概率预测并扩大区间。"
     };
@@ -837,5 +850,5 @@
     return [...map.values()].sort((a, b) => a.brand.localeCompare(b.brand, "zh-CN") || a.model.localeCompare(b.model, "zh-CN"));
   }
 
-  return Object.freeze({ BIN_KEYS, BIN_LABELS, diagnose, isCanonicalSixBin, listModels, ordinalWasserstein });
+  return Object.freeze({ BIN_KEYS, BIN_LABELS, diagnose, isCanonicalSixBin, listModels, ordinalWasserstein, makeCdfSurface });
 });
