@@ -483,12 +483,16 @@
     if (groups.length < 2) return null;
     const xs = groups.map(group => group.order);
     if (xs.some((x,i) => !Number.isFinite(x) || (i > 0 && x <= xs[i - 1]))) return null;
-    const columns = Array.from({ length: 5 }, (_, i) => {
-      const y = groups.map(group => safeLogit(fineCdf(group.vector)[i]));
-      return { y, slopes: shapePreservingDerivatives(xs, y) };
-    });
     const widths = xs.slice(1).map((x,i)=>x-xs[i]).sort((a,b)=>a-b);
     const medianSpacing = widths[Math.floor(widths.length/2)];
+    const slopeCap = 1.1 / medianSpacing;
+    const columns = Array.from({ length: 5 }, (_, i) => {
+      const y = groups.map(group => safeLogit(fineCdf(group.vector)[i]));
+      // Clip inside and outside derivatives IDENTICALLY, preserving C1
+      // continuity at the measured boundaries (not just at inner knots).
+      const slopes = shapePreservingDerivatives(xs, y).map(v=>clamp(v,-slopeCap,slopeCap));
+      return { y, slopes };
+    });
     const saturationScale = Math.max(1, 2.8 * medianSpacing + 0.10 * (xs.at(-1)-xs[0]));
     function evaluate(x) {
       const exact = groups.find(group => Math.abs(group.order - x) < 1e-9);
@@ -506,7 +510,7 @@
           const displacement = x - xs[edge];
           // Bounded displacement: surface approaches a limiting PSD at infinity.
           const effective = saturationScale * (1-Math.exp(-Math.abs(displacement)/saturationScale)) * Math.sign(displacement);
-          const stableSlope = clamp(slopes[edge], -1.1/medianSpacing, 1.1/medianSpacing);
+          const stableSlope = slopes[edge];
           return y[edge] + stableSlope * effective;
         }
         const h = xs[segment+1]-xs[segment], t=(x-xs[segment])/h;
@@ -781,9 +785,11 @@
         })
       : [];
     const roastAdvice = roastStartingPoints(measuredProfiles, [...predictions, ...extrapolations], curveReliable);
-    const predictedRange = predictions.length ? {
-      low: Math.min(...predictions.map((point) => point.order)),
-      high: Math.max(...predictions.map((point) => point.order))
+    const fullForecast = [...predictions,...extrapolations];
+    const predictedRange = fullForecast.length ? {
+      low: Math.min(...fullForecast.map((point) => point.order)),
+      high: Math.max(...fullForecast.map((point) => point.order)),
+      interpolatedCount: predictions.length, extrapolatedCount: extrapolations.length
     } : null;
     const hydraulicEnvelope = predictions.length ? POUR_SCENARIOS.map((scenario, scenarioIndex) => {
       const risks = predictions.map((point) => point.hydraulics.scenarios[scenarioIndex].migrationRisk);
