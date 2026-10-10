@@ -403,35 +403,178 @@
     };
   }
 
-  function extrapolateEdges(groups, records, baseSigma) {
-    if (groups.length < 3) return [];
-    const valid = records.filter(r => r.grinder?.settingOrderSource === "numeric-label" &&
-      Number.isInteger(Number(r.grinder.setting)) && String(r.grinder.setting) === String(r.grinder.settingOrder));
-    if (groups.some(g => !Number.isInteger(g.order) || !valid.some(r => Number(r.grinder.setting) === g.order))) return [];
-    const shifts = groups.slice(1).map((g,i)=>g.center-groups[i].center);
-    if (Math.abs(shifts.reduce((a,b)=>a+Math.sign(b),0)) < 0.65*shifts.length) return [];
-    const gaps=groups.slice(1).map((g,i)=>g.order-groups[i].order);
-    if(Math.max(...gaps)>Math.max(3,2*Math.min(...gaps))) return [];
+  // Six-bin PSD surface represented by five increasing cumulative fractions:
+  // F(180), F(300), F(500), F(800), F(1000).  Observed knots are NEVER modified.
+  // Shape-preserving cubic Hermite interpolation is applied to each cumulative
+  // logit along verified setting coordinates; PAVA restores CDF monotonicity
+  // across particle sizes when the projected curves would cross.
+  function fineCdf(vector) {
+    const cdf = [];
+    let accumulated = 0;
+    for (let i = 5; i >= 1; i -= 1) {
+      accumulated += vector[i];
+      cdf.push(accumulated);
+    }
+    return cdf;
+  }
+
+  function cdfToVector(cdf) {
+    const bounded = isotonicCdf(cdf);
+    return [
+      1 - bounded[4],
+      bounded[4] - bounded[3],
+      bounded[3] - bounded[2],
+      bounded[2] - bounded[1],
+      bounded[1] - bounded[0],
+      bounded[0]
+    ];
+  }
+
+  function isotonicCdf(cdf) {
+    const blocks = [];
+    cdf.forEach((raw) => {
+      blocks.push({ sum: clamp(raw, 0, 1), size: 1 });
+      while (blocks.length > 1) {
+        const a = blocks.at(-2);
+        const b = blocks.at(-1);
+        if (a.sum / a.size <= b.sum / b.size) break;
+        blocks.splice(-2, 2, { sum: a.sum + b.sum, size: a.size + b.size });
+      }
+    });
+    return blocks.flatMap(block => Array(block.size).fill(block.sum / block.size));
+  }
+
+  function safeLogit(p) {
+    const x = clamp(p, 1e-5, 1 - 1e-5);
+    return Math.log(x / (1 - x));
+  }
+
+  function sigmoid(x) {
+    return 1 / (1 + Math.exp(-clamp(x, -18, 18)));
+  }
+
+  function endpointDerivative(h0, h1, delta0, delta1) {
+    const slope = ((2 * h0 + h1) * delta0 - h0 * delta1) / (h0 + h1);
+    if (Math.sign(slope) !== Math.sign(delta0)) return 0;
+    if (Math.sign(delta0) !== Math.sign(delta1) && Math.abs(slope) > 3 * Math.abs(delta0)) {
+      return 3 * delta0;
+    }
+    return slope;
+  }
+
+  function shapePreservingDerivatives(xs, ys) {
+    const n = xs.length;
+    const h = xs.slice(1).map((x, i) => x - xs[i]);
+    const delta = h.map((width, i) => (ys[i + 1] - ys[i]) / width);
+    if (n === 2) return [delta[0], delta[0]];
+    const slopes = Array(n).fill(0);
+    slopes[0] = endpointDerivative(h[0], h[1], delta[0], delta[1]);
+    slopes[n - 1] = endpointDerivative(h.at(-1), h.at(-2), delta.at(-1), delta.at(-2));
+    for (let i = 1; i < n - 1; i += 1) {
+      if (delta[i - 1] * delta[i] <= 0) continue;
+      const w1 = 2 * h[i] + h[i - 1];
+      const w2 = h[i] + 2 * h[i - 1];
+      slopes[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+    }
+    return slopes;
+  }
+
+  function makeCdfSurface(groups) {
+    if (groups.length < 2) return null;
+    const xs = groups.map(group => group.order);
+    if (xs.some((x,i) => !Number.isFinite(x) || (i > 0 && x <= xs[i - 1]))) return null;
+    const columns = Array.from({ length: 5 }, (_, i) => {
+      const y = groups.map(group => safeLogit(fineCdf(group.vector)[i]));
+      return { y, slopes: shapePreservingDerivatives(xs, y) };
+    });
+    const widths = xs.slice(1).map((x,i)=>x-xs[i]).sort((a,b)=>a-b);
+    const medianSpacing = widths[Math.floor(widths.length/2)];
+    const saturationScale = Math.max(1, 2.8 * medianSpacing + 0.10 * (xs.at(-1)-xs[0]));
+    function evaluate(x) {
+      const exact = groups.find(group => Math.abs(group.order - x) < 1e-9);
+      if (exact) return [...exact.vector];
+      const outsideLow = x < xs[0];
+      const outsideHigh = x > xs.at(-1);
+      const outside = outsideLow || outsideHigh;
+      let segment = 0;
+      if (!outside) {
+        while (segment < xs.length-2 && x > xs[segment+1]) segment += 1;
+      }
+      const logits = columns.map(({ y, slopes }) => {
+        if (outside) {
+          const edge = outsideLow ? 0 : xs.length-1;
+          const displacement = x - xs[edge];
+          // Bounded displacement: surface approaches a limiting PSD at infinity.
+          const effective = saturationScale * (1-Math.exp(-Math.abs(displacement)/saturationScale)) * Math.sign(displacement);
+          const stableSlope = clamp(slopes[edge], -1.1/medianSpacing, 1.1/medianSpacing);
+          return y[edge] + stableSlope * effective;
+        }
+        const h = xs[segment+1]-xs[segment], t=(x-xs[segment])/h;
+        const t2=t*t,t3=t2*t;
+        return (2*t3-3*t2+1)*y[segment]
+          + (t3-2*t2+t)*h*slopes[segment]
+          + (-2*t3+3*t2)*y[segment+1]
+          + (t3-t2)*h*slopes[segment+1];
+      });
+      return cdfToVector(logits.map(sigmoid));
+    }
+    return { evaluate, xs, medianSpacing, saturationScale, thresholdsUm:[180,300,500,800,1000] };
+  }
+
+  function extrapolateEdges(groups, records, baseSigma, settings = {}) {
+    // Explicitly validated literal integer scales only; the absence of a
+    // physical maximum is disclosed, never guessed from dates or row order.
+    if (groups.length < 3 || !settings.surface) return [];
+    const valid = records.filter(record =>
+      record.grinder?.settingOrderSource === "numeric-label" &&
+      /^(?:0|[1-9]\d*)$/.test(String(record.grinder.setting)) &&
+      Number(record.grinder.setting) === Number(record.grinder.settingOrder));
+    if (groups.some(group => !Number.isInteger(group.order) ||
+        !valid.some(record => Number(record.grinder.setting) === group.order))) return [];
+    const shifts = groups.slice(1).map((group,i)=>group.center-groups[i].center)
+      .filter(shift => Math.abs(shift) > 0.005);
+    if (!shifts.length || Math.abs(shifts.reduce((s,v)=>s+Math.sign(v),0))/shifts.length < 0.75) return [];
+    const widths=groups.slice(1).map((g,i)=>g.order-groups[i].order);
+    if (Math.max(...widths) > Math.max(3,2.5*Math.min(...widths))) return [];
+    const { surface, cvError, consistency, protocolNoise } = settings;
+    const meanConfidence = groups.reduce((sum,g)=>sum+g.confidence,0)/groups.length;
+    const meanImputation = groups.reduce((sum,g)=>sum+g.imputationRate,0)/groups.length;
+    const span = groups.at(-1).order-groups[0].order;
+    const spacing = surface.medianSpacing;
+    // Evidence score: a non-calibrated reliability indicator, NEVER a
+    // frequentist confidence level or a probability of prediction correctness.
+    const startingReliability = clamp((0.56+0.055*Math.min(groups.length,8)) *
+      (0.5+0.5*meanConfidence) * clamp(consistency,0.65,1) *
+      (1-0.35*meanImputation) /
+      (1+Math.max(0,cvError||0)*1.7) /
+      (protocolNoise ? 1.3 : 1),0,1);
+    if (startingReliability < 0.32) return [];
+    const maxHorizon = Math.min(24, Math.max(5,Math.ceil(1.5*span)));
+    const decayScale = 3 + 0.55*groups.length;
     const results=[];
-    for(const side of ["before","after"]) {
-      const edge=side==="before"?groups[0]:groups.at(-1);
-      const near=side==="before"?groups[1]:groups.at(-2);
+    for(const side of ["before","after"]){
+      const edge = side==="before"?groups[0]:groups.at(-1);
       const sign=side==="before"?-1:1;
-      const slope=edge.vector.map((v,i)=>(v-near.vector[i])/(edge.order-near.order));
-      const steps=groups.length>=4 ? 3 : 2;
-      for(let n=1;n<=steps;n++){
-        const order=edge.order+sign*n;
-        if(order<0||groups.some(g=>g.order===order))continue;
-        const distance=2*(1-Math.exp(-n/2));
-        const raw=edge.vector.map((v,i)=>Math.max(1e-6,v+slope[i]*sign*distance));
-        const total=raw.reduce((a,b)=>a+b,0);
-        const vector=raw.map(v=>v/total);
-        const sigma=vector.map((_,i)=>Math.min(0.35,Math.max(baseSigma[i],0.06)*(1+n*0.75+(1-edge.confidence)*1.2+edge.imputationRate)));
-        const interval=logisticNormalInterval(vector,sigma,"edge/"+side+"/"+order);
-        results.push({order,setting:String(order),side,kind:"extrapolated",n,anchorOrder:edge.order,
-          pct:vector.map(v=>v*100),intervals:interval.map(v=>({low:v.low*100,high:v.high*100})),
+      for(let step=1;step<=maxHorizon;step++){
+        const order=edge.order+sign*step;
+        if(order<0)break;
+        const normalizedDistance=step/Math.max(spacing,1);
+        const reliability=startingReliability*Math.exp(-normalizedDistance/decayScale);
+        if(reliability<0.25)break;
+        const vector=surface.evaluate(order);
+        const sigma=vector.map((_,i)=>Math.min(0.40,
+          Math.max(0.035,baseSigma[i])*(
+          1+0.40*normalizedDistance+0.08*normalizedDistance**1.4+
+          1.5*(1-edge.confidence)+meanImputation)));
+        const interval=logisticNormalInterval(vector,sigma,"surface/"+side+"/"+order);
+        results.push({
+          order,setting:String(order),side,kind:"extrapolated",n:step,
+          anchorOrder:edge.order,modelReliability:reliability,
+          pct:vector.map(v=>v*100),
+          intervals:interval.map(v=>({low:v.low*100,high:v.high*100})),
           uncertaintyPct:sigma.reduce((a,b)=>a+b,0)/sigma.length*100,
-          hydraulics:hydraulicResponse(vector)});
+          hydraulics:hydraulicResponse(vector)
+        });
       }
     }
     return results.sort((a,b)=>a.order-b.order);
