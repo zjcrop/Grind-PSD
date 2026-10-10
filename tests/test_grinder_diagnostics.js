@@ -47,8 +47,8 @@ assert.equal(report.nextTest.order, 1.5);
 assert.equal(report.candidates[0].pct.length, 6);
 assert.ok(Math.abs(report.candidates[2].pct.reduce((sum, value) => sum + value, 0) - 100) < 1e-8);
 assert.equal(report.predictions.length, 12);
-assert.equal(report.extrapolations.length, 2, "one bounded step each side for one-unit anchor spacing");
-assert.deepEqual(report.extrapolations.map(p=>p.order), [0,6], "physical negative settings excluded");
+assert.equal(report.extrapolations.length, 4, "three positions on positive edge and one non-negative on low edge");
+assert.deepEqual(report.extrapolations.map(p=>p.order), [-2,-1,0,6,7,8].filter(v=>v>=0), "physical negative settings excluded");
 assert.ok(report.extrapolations.every(p=>Math.abs(p.pct.reduce((a,b)=>a+b,0)-100)<1e-8));
 assert.ok(report.extrapolations.every(p=>p.intervals.every(x=>x.low>=0&&x.high<=100)));
 
