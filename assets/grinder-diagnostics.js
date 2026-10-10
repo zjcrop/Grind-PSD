@@ -403,33 +403,39 @@
   }
 
   function roastStartingPoints(measuredProfiles, predictions, curveReliable) {
-    const pool = curveReliable && predictions.length
-      ? [...measuredProfiles, ...predictions.map((point) => ({
-        setting: null, order: point.order, n: 0,
-        vector: point.pct.map((share) => share / 100),
-        center: ordinalCenter(point.pct.map((share) => share / 100)),
-        hydraulics: point.hydraulics
-      }))]
-      : measuredProfiles;
-    if (!pool.length) return [];
+    // Do not manufacture distinct roast recommendations from one measured node.
+    // A grinder setting is a machine-specific identity, never a chronological rank.
+    const anchored = measuredProfiles.filter(point => point.order !== null);
+    if (anchored.length < 2 || !curveReliable) return [];
+    const pool = [...anchored, ...predictions.map(point => ({
+      setting: null, order: point.order, n: 0,
+      vector: point.pct.map(share => share / 100),
+      center: ordinalCenter(point.pct.map(share => share / 100)),
+      hydraulics: point.hydraulics
+    }))];
     const recipes = [
-      { roast: "浅烘/极浅烘", quantile: 0.72, hint: "从相对细的一档起步，提高萃取驱动力；若滴滤明显变慢或堵塞警示偏高，先回粗少许并用水温/注水补偿。" },
-      { roast: "中浅烘至中深烘", quantile: 0.5, hint: "先取本机 PSD 中位附近的刻度，再按流速和杯测微调。" },
-      { roast: "深烘", quantile: 0.28, hint: "从相对粗的一档起步，降低慢流与过度萃取风险；若风味偏薄，再小幅调细。" }
+      { roast: "深烘", quantile: 0.14, hint: "偏粗起步，仅是 PSD 相对排序先验，待杯测校准。" },
+      { roast: "中深烘", quantile: 0.28, hint: "由相对粗段起步；考虑溶出速度和慢流风险。" },
+      { roast: "中烘", quantile: 0.43, hint: "中位粗细起步，以杯测和流速确认。" },
+      { roast: "中浅烘", quantile: 0.57, hint: "稍偏细起步，并核查细粉水力代价。" },
+      { roast: "浅烘", quantile: 0.72, hint: "偏细起步，但不得忽略细粉提前耗尽和主体颗粒差异。" },
+      { roast: "极浅烘", quantile: 0.86, hint: "可考虑更细；仅当主体萃取收益超过堵塞和萃取不均风险时采用。缺少 EY/品鉴校准时不能称为最优。" }
     ];
     const sorted = [...pool].sort((a, b) => a.center - b.center);
-    return recipes.map((recipe) => {
+    return recipes.map(recipe => {
       const target = (sorted.length - 1) * recipe.quantile;
       const point = sorted[Math.round(target)];
+      const anchors = [...anchored].sort((a, b) => a.order - b.order);
+      const left = [...anchors].reverse().find(x => x.order <= point.order) || anchors[0];
+      const right = anchors.find(x => x.order >= point.order) || anchors.at(-1);
+      const risk = profileJudgement(point);
       return {
-        roast: recipe.roast,
-        setting: point.setting,
+        roast: recipe.roast, setting: point.setting,
         order: point.order,
-        risk: profileJudgement(point).clogging,
-        riskIndex: profileJudgement(point).migrationRisk,
-        style: profileJudgement(point).style,
-        hint: recipe.hint,
-        modeled: !point.setting && curveReliable
+        settingRange: left.setting === right.setting ? String(left.setting) : String(left.setting) + " – " + String(right.setting),
+        rangeType: left.setting === right.setting ? "实测刻度参考" : "两个实测刻度之间的候选区间（未校准最佳值）",
+        risk: risk.clogging, riskIndex: risk.migrationRisk,
+        style: risk.style, hint: recipe.hint, modeled: !point.setting
       };
     });
   }
