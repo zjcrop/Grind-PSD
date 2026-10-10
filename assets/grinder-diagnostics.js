@@ -443,7 +443,7 @@
     const anchored = measuredProfiles.filter(point => point.order !== null);
     if (anchored.length < 2 || !curveReliable) return [];
     const pool = [...anchored, ...predictions.map(point => ({
-      setting: null, order: point.order, n: 0,
+      setting: point.kind === "extrapolated" ? point.setting : null, kind:point.kind || "interpolated", order: point.order, n: 0,
       vector: point.pct.map(share => share / 100),
       center: ordinalCenter(point.pct.map(share => share / 100)),
       hydraulics: point.hydraulics
@@ -467,8 +467,8 @@
       return {
         roast: recipe.roast, setting: point.setting,
         order: point.order,
-        settingRange: left.setting === right.setting ? String(left.setting) : String(left.setting) + " – " + String(right.setting),
-        rangeType: left.setting === right.setting ? "实测刻度参考" : "两个实测刻度之间的候选区间（未校准最佳值）",
+        settingRange: point.kind === "extrapolated" ? String(point.setting)+"（外推）" : left.setting === right.setting ? String(left.setting) : String(left.setting) + " – " + String(right.setting),
+        rangeType: point.kind === "extrapolated" ? "边界外推探索，超出已测刻度，尚未验证" : left.setting === right.setting ? "实测刻度参考" : "两个实测刻度之间的候选区间（未校准最佳值）",
         risk: risk.clogging, riskIndex: risk.migrationRisk,
         style: risk.style, hint: recipe.hint, modeled: !point.setting
       };
