@@ -702,7 +702,7 @@ function renderGrinderDiagnostics() {
   const candidateMarkup = report.irregularGrinder
     ? `<div class="grinder-highlight"><span>刻度规律评估</span><strong>不规律 · 停止跨刻度预测</strong><small>已发现粒径响应存在明显反向变化。以下只评估各个实测刻度，不把刻度标签的猜测当作排序依据。</small></div>`
     : report.predictedRange
-    ? `<div class="grinder-highlight"><span>粒径分布与注水情景共同模拟的刻度区间</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>区间内有 ${report.predictions.length} 个概率预测点；完整 PSD 经相对床层阻力与细粉迁移代理量计算，不从单一分区选“最佳”。</small></div>`
+    ? `<div class="grinder-highlight"><span>粒径分布模型探索范围（含边界外推）</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>实测区间内插 ${report.predictions.length} 个节点，边界外推 ${(report.extrapolations||[]).length} 个节点；两端未测整数坐标不代表机械可用档位或已校准的最佳刻度。</small></div>`
     : report.bestObserved
       ? `<div class="grinder-highlight"><span>${report.candidates.length ? "有序实测参考，暂不能推断刻度响应" : "刻度顺序不足，暂不做跨刻度预测"}</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order ?? "实测 PSD"))}</strong><small>${report.candidates.length ? "再测一个有序刻度后即可开始间隔概率预测。" : `目前有 ${report.measuredProfiles.length} 个实测刻度标签；填写由细到粗的可比较排序值后，才用于刻度曲线。`}</small></div>`
     : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
@@ -716,7 +716,7 @@ function renderGrinderDiagnostics() {
     ? `<div class="table-wrap"><table class="record-table"><thead><tr><th>实测刻度</th><th>细粉</th><th>堵塞/迁移风险</th><th>研磨风格概估</th><th>烘焙度适配倾向</th><th>流动与萃取提示</th></tr></thead><tbody>${report.profileAssessments.map((item) => `<tr><td>${escapeHtml(item.setting)}<small>${item.n} 条测次</small></td><td>${item.finePct.toFixed(1)}%</td><td>${escapeHtml(item.clogging)}<small>${item.migrationRisk.toFixed(0)} / 100</small></td><td>${escapeHtml(item.style)}</td><td>${escapeHtml(item.roastFit)}</td><td>${escapeHtml(item.note)}</td></tr>`).join("")}</tbody></table></div><p class="note">风险级别按本模型筛查阈值估算；如果实际滴滤时间显著变长、断流或滤纸积粉，应按堵塞风险处理。</p>`
     : '<p class="note">目前没有可用 PSD 测次供风险评估。</p>';
   const roastAdviceMarkup = report.roastAdvice.length
-    ? `<div class="grinder-roast-grid">${report.roastAdvice.map((item) => `<article><strong>${escapeHtml(item.roast)}</strong><span>候选实际刻度区间：${escapeHtml(item.settingRange || item.setting || "暂无有效区间")}<small>${escapeHtml(item.rangeType || "仅相对粗细先验")}</small></span><small>堵塞/迁移风险 ${escapeHtml(item.risk)}（${item.riskIndex.toFixed(0)}/100） · ${escapeHtml(item.style)}</small><p>${escapeHtml(item.hint)}</p></article>`).join("")}</div><p class="note">这是按本机测得 PSD 排出的粗略建议值，不是杯测最优值；模型不会仅凭粒径分布判断豆子的烘焙度。</p>`
+    ? `<div class="grinder-roast-grid">${report.roastAdvice.map((item) => `<article><strong>${escapeHtml(item.roast)}</strong><span>候选刻度或模型区间：${escapeHtml(item.settingRange || item.setting || "暂无有效区间")}<small>${escapeHtml(item.rangeType || "仅相对粗细先验")}</small></span><small>堵塞/迁移风险 ${escapeHtml(item.risk)}（${item.riskIndex.toFixed(0)}/100） · ${escapeHtml(item.style)}</small><p>${escapeHtml(item.hint)}</p></article>`).join("")}</div><p class="note">这是按本机测得 PSD 排出的粗略建议值，不是杯测最优值；模型不会仅凭粒径分布判断豆子的烘焙度。</p>`
     : '<p class="note">数据不足，暂时无法给出烘焙度起步建议。</p>';
   const predictedRows = report.predictions.map((point) => {
     const tooltip = point.pct.map((pct, i) => `${report.bins[i]} μm：${pct.toFixed(1)}%（80%工作区间 ${point.intervals[i].low.toFixed(1)}–${point.intervals[i].high.toFixed(1)}%）`).join("；");
@@ -733,12 +733,19 @@ function renderGrinderDiagnostics() {
       : '<p>补测一个带明确细粗排序的不同刻度后，即可开始估计两测点之间的概率响应。</p>';
   const matrixNodes = [
     ...report.measuredProfiles.map(p => ({source:"实测",setting:p.setting,order:p.order,vector:p.vector,hydraulics:p.hydraulics,n:p.n})),
-    ...report.predictions.map(p => ({source:"预测",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0})),
-    ...(report.extrapolations || []).map(p => ({source:"边界外推",setting:p.setting+"（预测）",order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0}))
+    ...report.predictions.map(p => ({source:"区间内插",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0})),
+    ...(report.extrapolations || []).map(p => ({source:"边界外推",setting:p.setting+"（未测）",order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0,reliability:p.modelReliability}))
   ].sort((a,b) => (a.order===null?Infinity:a.order)-(b.order===null?Infinity:b.order) || (a.source==="实测"?-1:1));
   const matrixRows = matrixNodes.map(p => {
     const pct = p.vector.map(v=>(100*v).toFixed(1));
-    return `<tr><td>${escapeHtml(p.source)}</td><td>${p.setting ? escapeHtml(p.setting) : p.order.toFixed(2)+"（排序坐标，非实际档位）"}</td><td>${p.n||"—"}</td>${pct.map(v=>`<td>${v}%</td>`).join("")}<td>${p.hydraulics.d32Um.toFixed(0)}</td><td>${p.hydraulics.relativeResistance.toFixed(2)}</td></tr>`;
+    return `<tr><td>${escapeHtml(p.source)}</td><td>${p.setting ? escapeHtml(p.setting) : p.order.toFixed(2)+"（排序坐标，非实际档位）"}</td><td>${p.n||"—"}</td>${pct.map(v=>`<td>${v}%</td>`).join("")}<td>${p.hydraulics.d32Um.toFixed(0)}</td><td>${p.hydraulics.relativeResistance.toFixed(2)}</td><td>${p.reliability==null?"—":(p.reliability*100).toFixed(0)+"/100"}</td></tr>`;
+  }).join("");
+  const cumulativeRows = matrixNodes.filter(p=>p.order!==null).map(p=>{
+    let cumulative=0;
+    const values=[];
+    for(let i=5;i>=1;i--){ cumulative+=p.vector[i]; values.push(cumulative); }
+    const cells=values.map(v=>`<td style="background:rgba(101,149,185,${(0.05+v*0.40).toFixed(3)})" title="累计质量 ${(100*v).toFixed(1)}%">${(100*v).toFixed(1)}%</td>`).join("");
+    return `<tr><td>${escapeHtml(p.source)}</td><td>${escapeHtml(p.setting||p.order.toFixed(2))}</td>${cells}</tr>`;
   }).join("");
   const modelMethod = `
     <p><strong>数据分层：</strong>实测数据按品牌、型号、实际刻度原文及筛分协议记录；同刻度重复测次合并时保留测次、回收率和离散度。不同机型不共用刻度坐标。旧五档记录若拆到新六档，分配部分为先验估算，不是新增实测。</p>
@@ -748,8 +755,11 @@ function renderGrinderDiagnostics() {
     <p><strong>相对水力代理：</strong>R=(500/d₃₂)²×[1+1.5p₍＜180₎+0.6√(p₍＜300₎p₍≥800₎)]。这是工程风险代理，不是经验证的 Darcy 渗透率或绝对流速。</p>
     <p><strong>粒径传质候选公式（尚未校准，不参与当前刻度排名）：</strong>τᵢ=(dᵢ/2)²/(κD_eff)，qᵢ(t)=1−exp[−(t/τᵢ)^β]，q̄=Σpᵢqᵢ，H=Σpᵢ(qᵢ−q̄)²。细粉接近自身可萃取上限后，后续边际溶出应趋零，而非无限线性累计。κ、D_eff、β 必须由同豆分级冲煮、EY/TDS 与时间序列实验校准；不能将 qᵢ 当作整杯 EY，不能把颗粒相对耗尽直接等同感官过萃。</p>
     <p><strong>烘焙与发酵：</strong>当前仅是烘焙粗细起步先验，未由杯测标定成真实最优刻度。发酵强度与豆体结构可及性必须分别入模；“强发酵”不是可直接替换成更高扩散系数的证据。缺少品鉴/结构实测时不输出假精度。</p>
-    <p><strong>边界外推：</strong>至少三个经确认排序的整数刻度，跨刻度方向基本一致、测量规程一致时，使用临边两个观测 PSD 向量估计局部斜率 sᵢ=(pᵢ,edge−pᵢ,neighbor)/(g_edge−g_neighbor)。外推距离 n 使用阻尼位移 Δ=2(1−e^(−n/2))，pᵢ,raw=max(ε,pᵢ,edge+sᵢ·sign·Δ)，归一化至六段总和100%。最远不超过三个连续整数刻度（三个已测节点时最多两个）；超过实测端点后的整数档位是否实际存在，须由用户核实。置信区间随距离、插补比例和测量可靠度扩大；这属于受限情景模拟，并未验证磨豆机实际响应。</p>
-    <p><strong>预测方法：</strong>当前在已验证相邻刻度排序坐标内作 PSD 分量线性插值，80%区间由先验误差、留一误差、重复离散、旧档插补等共同影响；模型不在两端外推。排序坐标不是可直接设定的机器档位，必须与厂商实际刻度一一映射后才能推荐。</p>
+    <p><strong>连续 PSD 曲面：</strong>令 g 为同机型经确认的真实刻度，pᵢ(g) 为六档筛分质量占比。构建五条累计分布 Cⱼ(g)=F(dⱼ,g)=P(D&lt;dⱼ|g)，dⱼ 依次为180、300、500、800、1000μm。对每个 Cⱼ 使用 logit 变换 zⱼ=ln[Cⱼ/(1−Cⱼ)]，再沿 g 采用 PCHIP 分段保形三次 Hermite 插值，保留观测节点并避免普通高阶多项式的振荡。针对跨阈值曲线交叉，使用 PAVA 投影恢复 C₁≤…≤C₅，并通过差分还原六档非负 PSD，总质量比例始终为100%。</p>
+    <p><strong>连续延伸而非线性无限外推：</strong>边界 g₀ 的 logit 累积分布外推为 zⱼ(g)=zⱼ(g₀)+sⱼ×L×[1−exp(−|g−g₀|/L)]×sgn(g−g₀)，其中 sⱼ 为 PCHIP 在边界的导数，L=max(1,2.8×实测相邻间距中位数+0.10×实测跨度)，并对斜率设置上限。取 sigmoid(zⱼ) 还原 Cⱼ。此有界渐饱和关系是一种受限统计假设，并非磨豆机实测物理定律；平滑性不能证明超出采样边界的真实变化。</p>
+    <p><strong>自适应预测距离：</strong>只针对至少三个有真实整数刻度、趋势基本一致且筛分条件相同的磨豆机外推。设 k 为实测刻度节点数，h=边界外推步数/典型节点间距，R(g)=R₀×exp[−h/(3+0.55k)]。R₀ 根据数据质量、方向一致率、历史插补占比和留一预测误差缩放；当 R(g)&lt;0.25 即停止延伸，另设24格工程上限。此 R 仅为未经外部实验标定的证据分，不是80%等预测正确率。最终输出的边界和预测节点数量随各机型数据量动态变化。</p>
+    <p><strong>预测区间与测试：</strong>每个预测节点的六段比例通过保持总和100%的 logistic-normal 采样计算边际10%至90%分位范围。扰动随距离、留一误差、实测质量和旧档插补程度增加；目前为模型工作区间，尚未验证真实统计覆盖率。新实测节点应触发重新拟合及留出样本验证。</p>
+    <p><strong>可使用刻度的边界：</strong>系统不能推断厂商真实机械刻度行程、最细零点、锁止位置及刀盘接触风险。外推输出的整数档位仅为数学位置，不保证机械设备实际存在或安全可用。复合刻度应有人工确认的刻度制定义，不能从录入时间、字符串或其他机型数据自动映射。</p>
     <p><strong>模型约束：</strong>预测各档质量份额非负且总和100%；不允许调整实测节点位置或为了曲线单调而篡改实测 PSD。异常反向变化应保留并提示复测，样本不足时不做连续刻度结论。</p>`;
   container.innerHTML = `
     <div class="grinder-report-heading"><span class="grinder-grade ${statusClass}">${report.grade} · ${escapeHtml(report.gradeLabel)}</span><span>${report.formalRecords} 条纳入测次 / ${report.records} 条机型历史记录</span></div>
@@ -763,8 +773,12 @@ function renderGrinderDiagnostics() {
       ${roastAdviceMarkup}
     </section>
     <section class="grinder-card grinder-distribution-card"><h3>第三步｜实测 + 预测叠加 PSD 矩阵</h3><p class="note">以真实刻度为锚点，区间内为插值；边界之外在证据足够时提供保守外推，并分别标注；“排序坐标”不是机器实际刻度，严禁直接当作可用档位。</p>
-      <div class="table-wrap"><table class="record-table"><thead><tr><th>来源</th><th>实际刻度 / 模型坐标</th><th>测次</th>${report.bins.map(x=>`<th>${x} μm</th>`).join("")}<th>d₃₂ μm</th><th>相对阻力</th></tr></thead><tbody>${matrixRows || '<tr><td colspan="11">无可展示的实测或预测节点。</td></tr>'}</tbody></table></div>
-      <p class="note">${escapeHtml(report.extrapolationNotice || "")} 边界外推 ${(report.extrapolations || []).length} 个节点，向前/向后最多三个经确认的整数刻度；外推预测并非测量值，不能据此确认真实最佳刻度。</p>
+      <div class="table-wrap"><table class="record-table"><thead><tr><th>来源</th><th>实际刻度 / 模型坐标</th><th>测次</th>${report.bins.map(x=>`<th>${x} μm</th>`).join("")}<th>d₃₂ μm</th><th>相对阻力</th><th>外推证据分</th></tr></thead><tbody>${matrixRows || '<tr><td colspan="12">无可展示的实测或预测节点。</td></tr>'}</tbody></table></div>
+      <p class="note">${escapeHtml(report.extrapolationNotice || "")} 已生成 ${(report.extrapolations || []).length} 个边界外推节点，最远 ${Math.max(0,...(report.extrapolations||[]).map(p=>p.n))} 个整数刻度。证据分仅为未校准的相对评分，不是统计正确率。</p>
+      <details class="grinder-evidence"><summary>累积分布曲面 F(d,g) · 五个粒径阈值切片</summary>
+        <p class="note">逐刻度展示小于180、300、500、800与1000μm的累计比例；颜色深浅表示比例大小，外推记录均明确标注。</p>
+        <div class="table-wrap"><table class="record-table"><thead><tr><th>类型</th><th>刻度</th><th>F(180)</th><th>F(300)</th><th>F(500)</th><th>F(800)</th><th>F(1000)</th></tr></thead><tbody>${cumulativeRows || '<tr><td colspan="7">暂无累计分布节点。</td></tr>'}</tbody></table></div>
+      </details>
       ${report.predictions.length? `<p class="note">预测节点共 ${report.predictions.length} 个，非实测；区间存在统计不确定性，表中仅列中心估值。</p>`:"<p class='note'>目前刻度节点数量或有效排序依据不足，仅展示实测矩阵，不制造预测数据。</p>"}
     </section>
     <section class="grinder-card"><h3>第四步｜诊断依据、判断方法与限制</h3>
