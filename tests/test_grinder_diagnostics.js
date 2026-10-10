@@ -22,7 +22,7 @@ function makeLegacyRecord(order, shares, model = "Legacy Burr") {
   ];
   return Core.createRecord({
     user: { id: "tester", name: "Tester" },
-    grinder: { brand: "Test", model, setting: String(order), settingOrder: order },
+    grinder: { brand: "Test", model, setting: String(order), settingOrder: order, settingOrderSource: "legacy-unknown" },
     sample: { doseG: shares.reduce((sum, value) => sum + value, 0), durationSec: 60, sieveDevice: "legacy test sieve" },
     weightsGrams: Object.fromEntries([...Core.SIEVES.slice(0, 4).map((sieve, index) => [sieve.key, shares[index]]), ["pan80_lt300_g", shares[4]]]),
     sieveProfile: { id: "grind-psd-sieve-v1", custom: false, legacy: true, bins },
