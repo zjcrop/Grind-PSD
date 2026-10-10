@@ -7,7 +7,7 @@ const Diagnostics = require("../assets/grinder-diagnostics.js");
 function makeRecord(order, shares, options = {}) {
   return Core.createRecord({
     user: { id: "tester", name: "Tester" },
-    grinder: { brand: "Test", model: "Burr A", setting: options.setting || String(order), settingOrder: order, settingOrderSource: options.settingOrderSource },
+    grinder: { brand: "Test", model: "Burr A", setting: options.setting || String(order), settingOrder: order, settingOrderSource: options.settingOrderSource ?? "numeric-label" },
     sample: { doseG: shares.reduce((sum, value) => sum + value, 0), durationSec: 60, sieveDevice: "test sieve" },
     weightsGrams: Object.fromEntries(Core.SIEVES.map((sieve, index) => [sieve.key, shares[index]])),
     sieveProfile: options.profile,
@@ -58,8 +58,8 @@ assert.equal(report.predictedRange.low, 1.25);
 assert.equal(report.predictedRange.high, 4.75);
 assert.equal(report.hydraulicEnvelope.length, 3);
 assert.equal(report.measuredProfiles.length, 5);
-assert.equal(report.roastAdvice.length, 3);
-assert.ok(report.roastAdvice[0].order > report.roastAdvice[2].order, "light roast starts finer than dark roast");
+assert.equal(report.roastAdvice.length, 6);
+assert.ok(report.roastAdvice[0].order < report.roastAdvice[5].order, "deep roast starts coarser than very light roast");
 assert.match(report.profileAssessments[0].style, /分布/);
 
 const duplicate = makeRecord(3, [2, 11, 29, 31, 17, 10]);
@@ -76,6 +76,7 @@ assert.equal(converted.legacyRecords, 1);
 assert.equal(converted.inferredRecords, 1);
 assert.equal(converted.excludedRecords, 0);
 assert.equal(converted.groups.at(-1).vector.length, 6);
+assert.equal(converted.unorderableRecords, 1, "legacy sorting without provenance must remain excluded");
 assert.equal(Diagnostics.isCanonicalSixBin(legacy), false);
 
 const legacyOnly = Diagnostics.diagnose([
@@ -84,8 +85,8 @@ const legacyOnly = Diagnostics.diagnose([
 ], "Test", "Legacy Burr");
 assert.equal(legacyOnly.formalRecords, 2);
 assert.equal(legacyOnly.legacyRecords, 2);
-assert.equal(legacyOnly.groups.length, 2);
-assert.equal(legacyOnly.predictions.length, 3);
+assert.equal(legacyOnly.groups.length, 0);
+assert.equal(legacyOnly.predictions.length, 0);
 assert.match(legacyOnly.evidence.join(" "), /旧格式记录/);
 
 const partialRecord = makeRecord(3, [2, 11, 29, 31, 17, 10]);
@@ -137,13 +138,16 @@ assert.equal(compositeReport.groups.length, 0, "composite labels are never numer
 assert.equal(compositeReport.predictions.length, 0);
 assert.equal(compositeReport.ambiguousOrderRecords, 2);
 assert.equal(compositeReport.measuredProfiles.length, 2);
-assert.ok(compositeReport.roastAdvice.every((item) => item.setting));
+assert.equal(compositeReport.roastAdvice.length, 0, "never recommend roast settings without verified order");
 
 const manuallyOrderedComposite = [
   makeRecord(1, [4, 18, 33, 25, 13, 7], { setting: "2圈+5格", settingOrderSource: "manual" }),
   makeRecord(2, [2, 10, 25, 30, 20, 13], { setting: "2圈+8格", settingOrderSource: "manual" })
 ];
 assert.equal(Diagnostics.diagnose(manuallyOrderedComposite, "Test", "Burr A").groups.length, 2);
+const mismatchedOrder = makeRecord(9, [4, 18, 33, 25, 13, 7]);
+mismatchedOrder.grinder.settingOrder = 10;
+assert.equal(Diagnostics.diagnose([mismatchedOrder], "Test", "Burr A").groups.length, 0);
 
 const fineHeavy = makeRecord(1, [0, 0, 5, 10, 30, 55]);
 const fineReport = Diagnostics.diagnose([fineHeavy], "Test", "Burr A");
