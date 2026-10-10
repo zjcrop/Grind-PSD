@@ -74,7 +74,7 @@ for(let g=-10;g<=50;g+=0.25){
 }
 const far1=surface.evaluate(1000), far2=surface.evaluate(2000);
 assert.ok(far1.every((v,i)=>Math.abs(v-far2[i])<1e-6),"outward curve approaches a bounded PSD limit");
-for(let knot of [2,3,4]){
+for(let knot of [1,2,3,4,5]){
   const eps=1e-4,left=surface.evaluate(knot-eps),at=surface.evaluate(knot),right=surface.evaluate(knot+eps);
   assert.ok(left.every((v,i)=>Math.abs((at[i]-v)/eps-(right[i]-at[i])/eps)<0.005),"surface first derivative should be continuous at observed knots");
 }
@@ -86,8 +86,8 @@ assert.ok(report.predictions.every((point) => point.hydraulics.d32Um > 0 && poin
 assert.ok(report.predictions.every((point) => point.hydraulics.scenarios[0].migrationRisk <= point.hydraulics.scenarios[1].migrationRisk));
 assert.ok(report.predictions.every((point) => point.hydraulics.scenarios[1].migrationRisk <= point.hydraulics.scenarios[2].migrationRisk));
 assert.equal(report.bestPrediction, null);
-assert.equal(report.predictedRange.low, 1.25);
-assert.equal(report.predictedRange.high, 4.75);
+assert.ok(report.predictedRange.low <= 0, "exploratory range extends before first observed knot");
+assert.ok(report.predictedRange.high >= 9, "exploratory range includes longer edge forecasts");
 assert.equal(report.hydraulicEnvelope.length, 3);
 assert.equal(report.measuredProfiles.length, 5);
 assert.equal(report.roastAdvice.length, 6);
