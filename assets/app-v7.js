@@ -716,7 +716,7 @@ function renderGrinderDiagnostics() {
     ? `<div class="table-wrap"><table class="record-table"><thead><tr><th>实测刻度</th><th>细粉</th><th>堵塞/迁移风险</th><th>研磨风格概估</th><th>烘焙度适配倾向</th><th>流动与萃取提示</th></tr></thead><tbody>${report.profileAssessments.map((item) => `<tr><td>${escapeHtml(item.setting)}<small>${item.n} 条测次</small></td><td>${item.finePct.toFixed(1)}%</td><td>${escapeHtml(item.clogging)}<small>${item.migrationRisk.toFixed(0)} / 100</small></td><td>${escapeHtml(item.style)}</td><td>${escapeHtml(item.roastFit)}</td><td>${escapeHtml(item.note)}</td></tr>`).join("")}</tbody></table></div><p class="note">风险级别按本模型筛查阈值估算；如果实际滴滤时间显著变长、断流或滤纸积粉，应按堵塞风险处理。</p>`
     : '<p class="note">目前没有可用 PSD 测次供风险评估。</p>';
   const roastAdviceMarkup = report.roastAdvice.length
-    ? `<div class="grinder-roast-grid">${report.roastAdvice.map((item) => `<article><strong>${escapeHtml(item.roast)}</strong><span>候选实际刻度区间：${escapeHtml(item.settingRange || item.setting || "暂无有效区间")}<small>${escapeHtml(item.rangeType || "仅相对粗细先验")}</small></span><small>堵塞/迁移风险 ${escapeHtml(item.risk)}（${item.riskIndex.toFixed(0)}/100） · ${escapeHtml(item.style)}</small><p>${escapeHtml(item.hint)}</p></article>`).join("")}</div><p class="note">这是按本机测得 PSD 排出的粗略建议值，不是杯测最优值；模型不会仅凭粒径分布判断豆子的烘焙度。</p>`
+    ? `<div class="grinder-roast-grid">${report.roastAdvice.map((item) => `<article><strong>${escapeHtml(item.roast)}</strong><span>候选刻度或模型区间：${escapeHtml(item.settingRange || item.setting || "暂无有效区间")}<small>${escapeHtml(item.rangeType || "仅相对粗细先验")}</small></span><small>堵塞/迁移风险 ${escapeHtml(item.risk)}（${item.riskIndex.toFixed(0)}/100） · ${escapeHtml(item.style)}</small><p>${escapeHtml(item.hint)}</p></article>`).join("")}</div><p class="note">这是按本机测得 PSD 排出的粗略建议值，不是杯测最优值；模型不会仅凭粒径分布判断豆子的烘焙度。</p>`
     : '<p class="note">数据不足，暂时无法给出烘焙度起步建议。</p>';
   const predictedRows = report.predictions.map((point) => {
     const tooltip = point.pct.map((pct, i) => `${report.bins[i]} μm：${pct.toFixed(1)}%（80%工作区间 ${point.intervals[i].low.toFixed(1)}–${point.intervals[i].high.toFixed(1)}%）`).join("；");
@@ -733,12 +733,19 @@ function renderGrinderDiagnostics() {
       : '<p>补测一个带明确细粗排序的不同刻度后，即可开始估计两测点之间的概率响应。</p>';
   const matrixNodes = [
     ...report.measuredProfiles.map(p => ({source:"实测",setting:p.setting,order:p.order,vector:p.vector,hydraulics:p.hydraulics,n:p.n})),
-    ...report.predictions.map(p => ({source:"预测",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0})),
-    ...(report.extrapolations || []).map(p => ({source:"边界外推",setting:p.setting+"（预测）",order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0}))
+    ...report.predictions.map(p => ({source:"区间内插",setting:null,order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0})),
+    ...(report.extrapolations || []).map(p => ({source:"边界外推",setting:p.setting+"（未测）",order:p.order,vector:p.pct.map(v=>v/100),hydraulics:p.hydraulics,n:0,reliability:p.modelReliability}))
   ].sort((a,b) => (a.order===null?Infinity:a.order)-(b.order===null?Infinity:b.order) || (a.source==="实测"?-1:1));
   const matrixRows = matrixNodes.map(p => {
     const pct = p.vector.map(v=>(100*v).toFixed(1));
-    return `<tr><td>${escapeHtml(p.source)}</td><td>${p.setting ? escapeHtml(p.setting) : p.order.toFixed(2)+"（排序坐标，非实际档位）"}</td><td>${p.n||"—"}</td>${pct.map(v=>`<td>${v}%</td>`).join("")}<td>${p.hydraulics.d32Um.toFixed(0)}</td><td>${p.hydraulics.relativeResistance.toFixed(2)}</td></tr>`;
+    return `<tr><td>${escapeHtml(p.source)}</td><td>${p.setting ? escapeHtml(p.setting) : p.order.toFixed(2)+"（排序坐标，非实际档位）"}</td><td>${p.n||"—"}</td>${pct.map(v=>`<td>${v}%</td>`).join("")}<td>${p.hydraulics.d32Um.toFixed(0)}</td><td>${p.hydraulics.relativeResistance.toFixed(2)}</td><td>${p.reliability==null?"—":(p.reliability*100).toFixed(0)+"/100"}</td></tr>`;
+  }).join("");
+  const cumulativeRows = matrixNodes.filter(p=>p.order!==null).map(p=>{
+    let cumulative=0;
+    const values=[];
+    for(let i=5;i>=1;i--){ cumulative+=p.vector[i]; values.push(cumulative); }
+    const cells=values.map(v=>`<td style="background:rgba(101,149,185,${(0.05+v*0.40).toFixed(3)})" title="累计质量 ${(100*v).toFixed(1)}%">${(100*v).toFixed(1)}%</td>`).join("");
+    return `<tr><td>${escapeHtml(p.source)}</td><td>${escapeHtml(p.setting||p.order.toFixed(2))}</td>${cells}</tr>`;
   }).join("");
   const modelMethod = `
     <p><strong>数据分层：</strong>实测数据按品牌、型号、实际刻度原文及筛分协议记录；同刻度重复测次合并时保留测次、回收率和离散度。不同机型不共用刻度坐标。旧五档记录若拆到新六档，分配部分为先验估算，不是新增实测。</p>
@@ -763,8 +770,12 @@ function renderGrinderDiagnostics() {
       ${roastAdviceMarkup}
     </section>
     <section class="grinder-card grinder-distribution-card"><h3>第三步｜实测 + 预测叠加 PSD 矩阵</h3><p class="note">以真实刻度为锚点，区间内为插值；边界之外在证据足够时提供保守外推，并分别标注；“排序坐标”不是机器实际刻度，严禁直接当作可用档位。</p>
-      <div class="table-wrap"><table class="record-table"><thead><tr><th>来源</th><th>实际刻度 / 模型坐标</th><th>测次</th>${report.bins.map(x=>`<th>${x} μm</th>`).join("")}<th>d₃₂ μm</th><th>相对阻力</th></tr></thead><tbody>${matrixRows || '<tr><td colspan="11">无可展示的实测或预测节点。</td></tr>'}</tbody></table></div>
-      <p class="note">${escapeHtml(report.extrapolationNotice || "")} 边界外推 ${(report.extrapolations || []).length} 个节点，向前/向后最多三个经确认的整数刻度；外推预测并非测量值，不能据此确认真实最佳刻度。</p>
+      <div class="table-wrap"><table class="record-table"><thead><tr><th>来源</th><th>实际刻度 / 模型坐标</th><th>测次</th>${report.bins.map(x=>`<th>${x} μm</th>`).join("")}<th>d₃₂ μm</th><th>相对阻力</th><th>外推证据分</th></tr></thead><tbody>${matrixRows || '<tr><td colspan="12">无可展示的实测或预测节点。</td></tr>'}</tbody></table></div>
+      <p class="note">${escapeHtml(report.extrapolationNotice || "")} 已生成 ${(report.extrapolations || []).length} 个边界外推节点，最远 ${Math.max(0,...(report.extrapolations||[]).map(p=>p.n))} 个整数刻度。证据分仅为未校准的相对评分，不是统计正确率。</p>
+      <details class="grinder-evidence"><summary>累积分布曲面 F(d,g) · 五个粒径阈值切片</summary>
+        <p class="note">逐刻度展示小于180、300、500、800与1000μm的累计比例；颜色深浅表示比例大小，外推记录均明确标注。</p>
+        <div class="table-wrap"><table class="record-table"><thead><tr><th>类型</th><th>刻度</th><th>F(180)</th><th>F(300)</th><th>F(500)</th><th>F(800)</th><th>F(1000)</th></tr></thead><tbody>${cumulativeRows || '<tr><td colspan="7">暂无累计分布节点。</td></tr>'}</tbody></table></div>
+      </details>
       ${report.predictions.length? `<p class="note">预测节点共 ${report.predictions.length} 个，非实测；区间存在统计不确定性，表中仅列中心估值。</p>`:"<p class='note'>目前刻度节点数量或有效排序依据不足，仅展示实测矩阵，不制造预测数据。</p>"}
     </section>
     <section class="grinder-card"><h3>第四步｜诊断依据、判断方法与限制</h3>
