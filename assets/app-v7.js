@@ -702,7 +702,7 @@ function renderGrinderDiagnostics() {
   const candidateMarkup = report.irregularGrinder
     ? `<div class="grinder-highlight"><span>刻度规律评估</span><strong>不规律 · 停止跨刻度预测</strong><small>已发现粒径响应存在明显反向变化。以下只评估各个实测刻度，不把刻度标签的猜测当作排序依据。</small></div>`
     : report.predictedRange
-    ? `<div class="grinder-highlight"><span>粒径分布与注水情景共同模拟的刻度区间</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>区间内有 ${report.predictions.length} 个概率预测点；完整 PSD 经相对床层阻力与细粉迁移代理量计算，不从单一分区选“最佳”。</small></div>`
+    ? `<div class="grinder-highlight"><span>粒径分布模型探索范围（含边界外推）</span><strong>${report.predictedRange.low.toFixed(2)}–${report.predictedRange.high.toFixed(2)}</strong><small>实测区间内插 ${report.predictions.length} 个节点，边界外推 ${(report.extrapolations||[]).length} 个节点；两端未测整数坐标不代表机械可用档位或已校准的最佳刻度。</small></div>`
     : report.bestObserved
       ? `<div class="grinder-highlight"><span>${report.candidates.length ? "有序实测参考，暂不能推断刻度响应" : "刻度顺序不足，暂不做跨刻度预测"}</span><strong>${escapeHtml(report.bestObserved.setting || String(report.bestObserved.order ?? "实测 PSD"))}</strong><small>${report.candidates.length ? "再测一个有序刻度后即可开始间隔概率预测。" : `目前有 ${report.measuredProfiles.length} 个实测刻度标签；填写由细到粗的可比较排序值后，才用于刻度曲线。`}</small></div>`
     : '<div class="empty">暂无可用历史 PSD 数据，暂时不能给出刻度方向或候选刻度。</div>';
