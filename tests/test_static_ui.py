@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class StaticUiTests(unittest.TestCase):
     def test_grinder_roast_card_theme_contrast(self):
         styles = (ROOT / "assets" / "styles-v5.css").read_text(encoding="utf-8")
-        match = re.search(r"\\.grinder-roast-grid article\\s*\\{([^}]+)\\}", styles)
+        match = re.search(r"\.grinder-roast-grid article\s*\{([^}]+)\}", styles)
         self.assertIsNotNone(match, "roast cards must have an explicit theme")
         card = match.group(1)
         self.assertIn("background: var(--panel-2)", card)
@@ -17,9 +17,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("border: 1px solid var(--border)", card)
         self.assertNotIn("var(--surface", styles)
         self.assertNotIn("var(--line", styles)
-        self.assertRegex(styles, r"\\.grinder-roast-grid article > strong\\s*\\{[^}]*color:\\s*var\\(--accent-bright\\)")
-        self.assertRegex(styles, r"\\.grinder-roast-grid article small\\s*\\{[^}]*color:\\s*var\\(--muted\\)")
-        colors = dict(re.findall(r"(--[a-z][a-z0-9-]*)\\s*:\\s*(#[0-9a-f]{6})\\s*;", styles))
+        self.assertRegex(styles, r"\.grinder-roast-grid article > strong\s*\{[^}]*color:\s*var\(--accent-bright\)")
+        self.assertRegex(styles, r"\.grinder-roast-grid article small\s*\{[^}]*color:\s*var\(--muted\)")
+        colors = dict(re.findall(r"(--[a-z][a-z0-9-]*)\s*:\s*(#[0-9a-f]{6})\s*;", styles))
 
         def luminance(hex_color):
             channels = [int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
